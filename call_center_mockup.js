@@ -33,13 +33,11 @@ class DotColor2 {
   colorWalk() {
     let timeColor = 0;
     let spanWidthScalar = testDots2.gridColumns * 3.0;
-    let spanHeightScalar = testDots2.gridRows * 3.0;
     for (let i = 0; i < this.totalColors; i = i + 3) {
       timeColor = performance.now() / 5;
       this.colorArray[i + 0] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.0) / spanWidthScalar));
       this.colorArray[i + 1] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.9) /spanWidthScalar));
       this.colorArray[i + 2] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.6) /spanWidthScalar));
-
     }
   }
 
@@ -166,8 +164,7 @@ function updateShader(time) {
     u_time: time * 0.001,
     u_resolution: [testDots2.gridWidth, testDots2.gridHeight],
     u_mouse: [mouseX2, mouseY2],
-    u_background: [1.0, 1.0, 1.0],
-    u_padding: testDots2.dotPadding,
+    u_background: [0.5, 0.4, 0.5, 1.0,],
     u_gridparams: [testDots2.gridColumns, testDots2.gridRows, testDots2.tileSize],
     u_texture: clientColorTexture,
   };
@@ -202,14 +199,3 @@ function render(time) {
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
-
-/*
-function sleep (time) {
-return new Promise((resolve) => setTimeout(resolve, time));
-}
- 
-
-sleep(500).then(() => {
-windowResized();
-});
-*/
