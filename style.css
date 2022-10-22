@@ -1,0 +1,17 @@
+html body main {
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  overflow:hidden;
+}
+
+#cgl {
+  padding: auto;
+  margin: auto;
+  overflow:hidden;
+  height: 1px;
+}
