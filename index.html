@@ -6,7 +6,7 @@
   <link type="text/css" rel="stylesheet"  href="style.css">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="utf-8">
-  <script src="libraries/twgl-full.min.js"></script>
+  <script src="libraries/twgl.min.js"></script>
   <script src="libraries/p5.min.js"></script>
 
 </head>
@@ -40,8 +40,6 @@
   uniform sampler2D u_texture;
 
   varying vec2 v_texCoord;
-
-  float aa_factor = u_gridparams.z;
   
   float circle(in vec2 _st) { 
     float l = length(_st.xy - 0.5);
@@ -50,11 +48,11 @@
   }
   
   void main() {
-      vec2 st = gl_FragCoord.xy;
+      vec2 st = gl_FragCoord.xy / u_resolution.xy;
   
       st.x *= u_gridparams.x;
       st.y *= u_gridparams.y;
-      st = fract(st / u_resolution.xy);
+      st = fract(st);
 
       vec4 tex_color = texture2D(u_texture, v_texCoord);
       tex_color.xyz = tex_color.xyz * circle(st);
