@@ -13,7 +13,10 @@
 
 <body style="height: 100%">
   <canvas id="cgl">
-    <script id="vs" type="notjs">      
+    <script id="vs" type="notjs">    
+  #ifdef GL_ES
+  precision mediump float;
+  #endif  
   attribute vec4 a_position;
   attribute vec2 a_texcoord;
 
@@ -33,31 +36,30 @@
   uniform vec2 u_mouse;
   uniform float u_time;
   uniform vec3 u_gridparams;
-  uniform vec3 u_background;
-  uniform float u_padding;
+  uniform vec4 u_background;
   uniform sampler2D u_texture;
 
   varying vec2 v_texCoord;
 
-
-  float aa_factor = u_resolution.y / u_gridparams.y;
+  float aa_factor = u_gridparams.z;
   
-  float circle(in vec2 _st) {
-    return smoothstep(0.5, 0.5 + 1.0/aa_factor, 1.0 - length(_st.xy - 0.5));
+  float circle(in vec2 _st) { 
+    float l = length(_st.xy - 0.5);
+    float dl = l * 3.0 / u_gridparams.z;
+    return smoothstep(0.5 + dl, 0.5 - dl, l);
   }
   
   void main() {
-      vec2 st = gl_FragCoord.xy / u_resolution.xy;
-      vec4 color = vec4(1.0, 1.0, 1.0, 1.0);
+      vec2 st = gl_FragCoord.xy;
   
       st.x *= u_gridparams.x;
       st.y *= u_gridparams.y;
-      st = fract(st);
+      st = fract(st / u_resolution.xy);
 
       vec4 tex_color = texture2D(u_texture, v_texCoord);
-      color.xyz = tex_color.xyz * vec3(circle(st));
+      tex_color.xyz = tex_color.xyz * circle(st);
   
-      gl_FragColor = color;
+      gl_FragColor = tex_color;
   }
       </script>
   </canvas>
