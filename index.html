@@ -2,7 +2,7 @@
 <html lang="" style="height: 100%">
 
 <head>
-  <title>Shader</title>
+  <title>Overlooker</title>
   <link type="text/css" rel="stylesheet"  href="style.css">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="utf-8">
@@ -24,7 +24,7 @@
     v_texCoord = a_texcoord;
     gl_Position = a_position;
   }
-    </script>
+      </script>
     <script id="fs" type="notjs">
   #ifdef GL_ES
   precision mediump float;
@@ -38,11 +38,12 @@
   uniform sampler2D u_texture;
 
   varying vec2 v_texCoord;
+  float aa_factor = 1.5 * (u_gridparams.y / u_resolution.y);
   
   float circle(in vec2 _st) { 
     float l = length(_st.xy - 0.5);
     float dl = l * 3.0 / u_gridparams.z;
-    return smoothstep(0.5 + dl, 0.5 - dl, l);
+    return smoothstep(0.5 + aa_factor, 0.5 - aa_factor, l);
   }
   
   void main() {
