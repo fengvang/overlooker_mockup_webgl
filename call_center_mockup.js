@@ -22,6 +22,32 @@ const myObserver = new ResizeObserver(entries => {
 const canvasResized = document.querySelector('body');
 myObserver.observe(canvasResized);
 
+function HSVtoRGB(h, s, v) {
+  var r, g, b, i, f, p, q, t;
+  if (arguments.length === 1) {
+      s = h.s, v = h.v, h = h.h;
+  }
+  i = Math.floor(h * 6);
+  f = h * 6 - i;
+  p = v * (1 - s);
+  q = v * (1 - f * s);
+  t = v * (1 - (1 - f) * s);
+  switch (i % 6) {
+      case 0: r = v, g = t, b = p; break;
+      case 1: r = q, g = v, b = p; break;
+      case 2: r = p, g = v, b = t; break;
+      case 3: r = p, g = q, b = v; break;
+      case 4: r = t, g = p, b = v; break;
+      case 5: r = v, g = p, b = q; break;
+  }
+  return {
+      r: Math.round(r * 255),
+      g: Math.round(g * 255),
+      b: Math.round(b * 255)
+  };
+}
+
+
 class DotColor2 {
   constructor(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
@@ -33,6 +59,7 @@ class DotColor2 {
 
   initTexture() {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     this.colorTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.colorTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -46,12 +73,28 @@ class DotColor2 {
 
   colorWalk() {
     let timeColor = 0;
-    let spanWidthScalar = testDots2.gridColumns * 4.0;
+    let spanWidthScalar = this.texWidth * 4.0;
     for (let i = 0; i < this.totalColors; i = i + 4) {
       timeColor = performance.now() / 5;
       this.colorArray[i + 0] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.0) / spanWidthScalar));
       this.colorArray[i + 1] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.9) / spanWidthScalar));
       this.colorArray[i + 2] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.6) / spanWidthScalar));
+      this.colorArray[i + 3] = 255;
+    }
+    let xoff = 0;
+    let yoff = 0;
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, xoff, yoff, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray) 
+  }
+
+  colorRandom() {
+    let timeColor = 0;
+    let spanWidthScalar = this.texWidth * 4.0;
+    for (let i = 0; i < this.totalColors; i = i + 4) {
+      timeColor = performance.now() / 2000;
+      let convert = HSVtoRGB((noise(i / 4 + timeColor)), 0.5, 1.0);
+      this.colorArray[i + 0] = convert.r;
+      this.colorArray[i + 1] = convert.g;
+      this.colorArray[i + 2] = convert.b;
       this.colorArray[i + 3] = 255;
     }
     let xoff = 0;
@@ -157,14 +200,13 @@ function updateShader(time) {
     u_time: time * 0.001,
     u_resolution: [testDots2.gridWidth, testDots2.gridHeight],
     u_mouse: [mouseX2, mouseY2],
-    u_background: [0.5, 0.4, 0.5, 1.0,],
+    u_background: [gridBG.r / 255, gridBG.g / 255, gridBG.b / 255, 1.0,],
     u_gridparams: [testDots2.gridColumns, testDots2.gridRows, testDots2.tileSize],
-    //u_texture: testColor2.colorTexture,
   };
 }
 
 function render(time) {
-  testColor2.colorWalk();
+  testColor2.colorRandom();
   updateShader(time);
   twgl.resizeCanvasToDisplaySize(gl.canvas);
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
@@ -181,6 +223,25 @@ const gl = document.getElementById("cgl").getContext("webgl");
 const glCanvas = document.getElementById("cgl");
 const programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]);
 
+// Makes the shader draw onto a simple quad.
+const arrays = {
+  a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1],
+  a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
+};
+const bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
+
+function setup() {
+  createCanvas(100, 50);
+  background(153);
+  line(0, 0, width, height);
+}
+
+// Needed in order to use p5 functions.
+new p5();
+function setup() {
+  createCanvas(0, 0);
+}
+
 var mouseX2 = 0;
 var mouseY2 = 0;
 var originX = -glCanvas.width / 2.0;
@@ -188,15 +249,9 @@ var originY = -glCanvas.height / 2.0;
 var mouseOverIndex = 0;
 var width2 = 0;
 var height2 = 0;
-var clientColorTexture = 0;
 var testDotCount = 10000;
 var testDotPadding = 0.05;
+var gridBG = HSVtoRGB(0.3, 0.1, 1.0);
 var testDots2 = new DotGrid2(testDotCount, glCanvas.width, glCanvas.height, testDotPadding);
 var testColor2 = new DotColor2(testDots2.gridColumns, testDots2.gridRows);
-
-// Makes the shader draw onto a simple quad.
-const arrays = {
-  a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1],
-  a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
-};
-const bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
+document.body.style.backgroundColor = 'rgb(' + gridBG.r + ',' + gridBG.g + ',' + gridBG.b + ')';
