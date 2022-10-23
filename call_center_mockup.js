@@ -1,7 +1,3 @@
-//////////////////////////////////////////////////////////////////////////////////////////////
-// WEBGL
-//////////////////////////////////////////////////////////////////////////////////////////////
-
 document.addEventListener('mousemove',
   function (event) {
     mouseX2 = event.pageX;
@@ -16,34 +12,59 @@ const myObserver = new ResizeObserver(entries => {
     width2 = entry.contentRect.width;
     height2 = entry.contentRect.height;
     testDots2.updateTilingMaxSpan(width2, height2);
-    testColor2.updateTextureD();
+    testColor2.updateTextureDimensions(testDots2.gridColumns, testDots2.gridRows);
 
     // Uses CSS to introduce margins so the shader doesn't warp on resize.
     glCanvas.style.width = testDots2.gridWidth + "px";
     glCanvas.style.height = testDots2.gridHeight + "px";
   });
 });
+const canvasResized = document.querySelector('body');
+myObserver.observe(canvasResized);
 
 class DotColor2 {
-  constructor() {
-    this.totalColors = testDots2.gridRows * testDots2.gridColumns * 3;
+  constructor(tempWidth, tempHeight) {
+    this.texWidth = tempWidth;
+    this.texHeight = tempHeight;
+    this.totalColors = this.texWidth * this.texHeight * 4;
     this.colorArray = new Uint8Array(this.totalColors);
+    this.initTexture();
+  }
+
+  initTexture() {
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    this.colorTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.colorTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+    // Don't generate mip maps.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
   colorWalk() {
     let timeColor = 0;
-    let spanWidthScalar = testDots2.gridColumns * 3.0;
-    for (let i = 0; i < this.totalColors; i = i + 3) {
+    let spanWidthScalar = testDots2.gridColumns * 4.0;
+    for (let i = 0; i < this.totalColors; i = i + 4) {
       timeColor = performance.now() / 5;
       this.colorArray[i + 0] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.0) / spanWidthScalar));
-      this.colorArray[i + 1] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.9) /spanWidthScalar));
-      this.colorArray[i + 2] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.6) /spanWidthScalar));
+      this.colorArray[i + 1] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.9) / spanWidthScalar));
+      this.colorArray[i + 2] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.6) / spanWidthScalar));
+      this.colorArray[i + 3] = 255;
     }
+    let xoff = 0;
+    let yoff = 0;
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, xoff, yoff, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray) 
   }
 
-  updateTextureD() {
-    this.totalColors = testDots2.gridRows * testDots2.gridColumns * 3;
+  updateTextureDimensions(tempWidth, tempHeight) {
+    this.texWidth = tempWidth;
+    this.texHeight = tempHeight;
+    this.totalColors = this.texWidth * this.texHeight * 4;
     this.colorArray = new Uint8Array(this.totalColors);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   }
 }
 
@@ -131,6 +152,30 @@ class DotGrid2 {
   }
 }
 
+function updateShader(time) {
+  uniforms = {
+    u_time: time * 0.001,
+    u_resolution: [testDots2.gridWidth, testDots2.gridHeight],
+    u_mouse: [mouseX2, mouseY2],
+    u_background: [0.5, 0.4, 0.5, 1.0,],
+    u_gridparams: [testDots2.gridColumns, testDots2.gridRows, testDots2.tileSize],
+    //u_texture: testColor2.colorTexture,
+  };
+}
+
+function render(time) {
+  testColor2.colorWalk();
+  updateShader(time);
+  twgl.resizeCanvasToDisplaySize(gl.canvas);
+  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+  gl.useProgram(programInfo.program);
+  twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
+  twgl.setUniforms(programInfo, uniforms);
+  twgl.drawBufferInfo(gl, bufferInfo);
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
 // Prepare WebGL (compile shaders, set default texture color, bind to canvas)
 const gl = document.getElementById("cgl").getContext("webgl");
 const glCanvas = document.getElementById("cgl");
@@ -147,10 +192,7 @@ var clientColorTexture = 0;
 var testDotCount = 10000;
 var testDotPadding = 0.05;
 var testDots2 = new DotGrid2(testDotCount, glCanvas.width, glCanvas.height, testDotPadding);
-var testColor2 = new DotColor2(testDots2.gridColumns * testDots2.gridRows);
-const canvasResized = document.querySelector('body');
-myObserver.observe(canvasResized);
-
+var testColor2 = new DotColor2(testDots2.gridColumns, testDots2.gridRows);
 
 // Makes the shader draw onto a simple quad.
 const arrays = {
@@ -158,44 +200,3 @@ const arrays = {
   a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
 };
 const bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
-
-function updateShader(time) {
-  uniforms = {
-    u_time: time * 0.001,
-    u_resolution: [testDots2.gridWidth, testDots2.gridHeight],
-    u_mouse: [mouseX2, mouseY2],
-    u_background: [0.5, 0.4, 0.5, 1.0,],
-    u_gridparams: [testDots2.gridColumns, testDots2.gridRows, testDots2.tileSize],
-    u_texture: clientColorTexture,
-  };
-}
-
-function updateTexture() {
-  testColor2.colorWalk();
-  clientColorTexture = twgl.createTexture(gl, {
-    internalFormat: gl.RGB8,
-    format: gl.RGB,
-    type: gl.UNSIGNED_BYTE,
-    minMag: gl.NEAREST,
-    wrap: gl.CLAMP_TO_EDGE,
-    unpackAlignment: 1,
-    flipY: 1,
-    width: testDots2.gridColumns,
-    height: testDots2.gridRows,
-    src: testColor2.colorArray,
-  })
-}
-
-function render(time) {
-  updateTexture();
-  updateShader(time);
-  //testDots2.updateMouseOverIndex();
-  twgl.resizeCanvasToDisplaySize(gl.canvas);
-  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-  gl.useProgram(programInfo.program);
-  twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
-  twgl.setUniforms(programInfo, uniforms);
-  twgl.drawBufferInfo(gl, bufferInfo);
-  requestAnimationFrame(render);
-}
-requestAnimationFrame(render);
