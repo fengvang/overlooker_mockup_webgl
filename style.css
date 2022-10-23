@@ -1,17 +1,22 @@
-html body main {
+html {
+  display: block;
+  height: 100%;
+  overflow:hidden;
   padding: 0;
   margin: 0;
-  overflow: hidden;
+  background-color: rgb(20, 20, 20);
+}
+
+body {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
 }
 
 canvas {
-  display: block;
-  overflow:hidden;
-}
-
-#cgl {
-  padding: auto;
-  margin: auto;
-  overflow:hidden;
-  height: 1px;
+  margin: 0;
+  padding: 0;
 }
