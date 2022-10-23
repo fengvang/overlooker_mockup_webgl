@@ -42,7 +42,6 @@
   
   float circle(in vec2 _st) { 
     float l = length(_st.xy - 0.5);
-    float dl = l * 3.0 / u_gridparams.z;
     return smoothstep(0.5 + aa_factor, 0.5 - aa_factor, l);
   }
   
