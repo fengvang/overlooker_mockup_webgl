@@ -43,7 +43,6 @@
 
   float circle(in vec2 _st) { 
     float l = length(_st.xy - 0.5);
-    //aa_factor = 0.001;
     return smoothstep(0.5 + aa_factor, 0.5 - aa_factor, l);
   }
   
@@ -56,7 +55,6 @@
       st = fract(st);
 
       gl_FragColor = mix(tex_color, u_background, 1.0 - circle(st));
-      //gl_FragColor = tex_color;
   }
       </script>
   </canvas>
