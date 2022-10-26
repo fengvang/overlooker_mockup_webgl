@@ -3,19 +3,16 @@
 
 <head>
   <title>Overlooker</title>
-  <link href="style.css" rel="stylesheet" type="text/css"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="style.css" rel="stylesheet" type="text/css" />
   <meta charset="utf-8">
   <script src="libraries/twgl.min.js"></script>
-  <script src="libraries/p5.min.js"></script>
 </head>
 
 <body>
   <canvas id="cgl">
-    <script id="vs" type="notjs">    
-  #ifdef GL_ES
+    <script id="vs" type="notjs">
   precision mediump float;
-  #endif  
+
   attribute vec4 a_position;
   attribute vec2 a_texcoord;
 
@@ -27,15 +24,13 @@
   }
       </script>
     <script id="fs" type="notjs">
-  #ifdef GL_ES
   precision mediump float;
-  #endif
   
   uniform vec2 u_resolution;
   uniform vec2 u_mouse;
   uniform float u_time;
   uniform vec3 u_gridparams;
-  uniform vec4 u_background;
+  uniform vec4 u_colortheme[6];
   uniform sampler2D u_texture;
 
   varying vec2 v_texCoord;
@@ -45,19 +40,58 @@
     float l = length(_st.xy - 0.5);
     return smoothstep(0.5 + aa_factor, 0.5 - aa_factor, l);
   }
+
+  float circle_shift(in vec2 _st, in float _timer) { 
+    float l = length(_st.xy - 0.5);
+    return smoothstep(0.5 + _timer / 4., 0.5 - _timer/4., l);
+  }
+
+  /*
+  colorOnCall = [149.0, 255.0, 127.0, 255]; // green -> 0.2
+  colorAvailable = [127.0, 255.0, 241.0, 255]; // aqua
+  colorPreviewingTask = [255.0, 240.0, 127.0, 255]; // yellow
+  colorAfterCall = [141.0, 127.0, 255.0, 255]; // purple
+  colorLoggedOut = [211.0, 229.0, 207.0, 255]; // grey
+    */
+
+  vec4 colorCheck(in float _code) {
+    vec4 _color = vec4(0.0);
+    if (_code <= 0.0) {
+      _color = u_colortheme[0];
+    } else if (_code <= 0.2) {
+      _color = u_colortheme[1];
+    } else if (_code <= 0.4) {
+      _color = u_colortheme[2];
+    } else if (_code <= 0.6) {
+      _color = u_colortheme[3];
+    } else if (_code <= 0.8) {
+      _color = u_colortheme[4];
+    } else {
+      if (u_colortheme[5].x + u_colortheme[5].y + u_colortheme[5].z < 1.0) {
+        _color = u_colortheme[5] + vec4(0.1, 0.1, 0.1, 0.0);
+      } else {
+        _color = u_colortheme[5] - vec4(0.1, 0.1, 0.1, 0.0);
+      }
+    }
+    return _color;
+  }
   
   void main() {
       vec2 st = gl_FragCoord.xy / u_resolution.xy;
-      vec4 tex_color = texture2D(u_texture, v_texCoord);
-  
-      st.x *= u_gridparams.x;
-      st.y *= u_gridparams.y;
+      st.xy *= u_gridparams.xy;
       st = fract(st);
+      
+      vec4 tex_color = texture2D(u_texture, v_texCoord);
+      vec4 start_color = colorCheck(tex_color.x);
+      vec4 end_color = colorCheck(tex_color.y);
 
-      gl_FragColor = mix(tex_color, u_background, 1.0 - circle(st));
+      vec4 shaded = mix(start_color, end_color, tex_color.z);
+
+      gl_FragColor = mix(vec4(0.0), shaded, circle(st));
   }
       </script>
   </canvas>
 </body>
 <script src="call_center_mockup.js"></script>
+
 </html>
