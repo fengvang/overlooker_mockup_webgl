@@ -1,3 +1,51 @@
+var clientTimer;
+function clientDriver() {
+  clientTimer = setInterval(function () {
+    for (let i = 0; i < Math.floor(testDotCount / 2); i++) {
+      testClient.randomStateChange();
+    }
+  }, 500);
+}
+
+function createColorTheme(themeSelection) {
+  let colorOnCall, colorAvailable, colorPreviewingTask, 
+  colorAfterCall, colorLoggedOut, colorBackground;
+
+  switch (themeSelection) {
+    case "user":
+      // Values from CSS color picker go here.
+      break;
+    case "original":
+      colorOnCall = [149, 255, 127, 255];         // green
+      colorAvailable = [127, 255, 241, 255];      // aqua
+      colorPreviewingTask = [255, 240, 127, 255]; // yellow
+      colorAfterCall = [141, 127, 255, 255];      // purple
+      colorLoggedOut = [211, 229, 207, 255];      // grey
+      colorBackground = [235, 255, 230, 255];     // light green
+      break;
+    case "client_slide":
+      colorOnCall = [243, 108, 82, 255];        // red
+      colorAvailable = [63, 191, 177, 255];     // green
+      colorPreviewingTask = [0, 110, 184, 255]; // blue
+      colorAfterCall = [255, 205, 52, 255];     // yellow
+      colorLoggedOut = [0, 48, 70, 255];        // dark blue
+      //colorBackground = [226, 222, 217, 255] ;  // beige
+      colorBackground = [0, 0, 0, 255] ;        // black
+      break;
+  }
+  let tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
+    colorAvailable, colorOnCall, colorBackground);
+
+  // Normalize values for the shader.
+  for (let i = 0; i < tempColorTheme.length; i++) {
+    tempColorTheme[i] = tempColorTheme[i] / 255;
+  }
+
+  document.body.style.backgroundColor = 'rgb(' + colorBackground[0] + ',' 
+  + colorBackground[1] + ',' + colorBackground[2] + ')';
+  return tempColorTheme;
+}
+
 document.addEventListener('mousemove',
   function (event) {
     mouseX2 = event.pageX;
@@ -5,8 +53,6 @@ document.addEventListener('mousemove',
   })
 
 // Runs any time the browser window is resized.
-// UNSAFE: USE PROMISE TO UPDATE ONLY AT BEGINNING OF DRAW LOOP!
-// TODO: Fix zoom behavior - https://webglfundamentals.org/webgl/lessons/webgl-resizing-the-canvas.html
 const myObserver = new ResizeObserver(entries => {
   entries.forEach(entry => {
     width2 = entry.contentRect.width;
@@ -22,38 +68,67 @@ const myObserver = new ResizeObserver(entries => {
 const canvasResized = document.querySelector('body');
 myObserver.observe(canvasResized);
 
-function HSVtoRGB(h, s, v) {
-  var r, g, b, i, f, p, q, t;
-  if (arguments.length === 1) {
-      s = h.s, v = h.v, h = h.h;
+class ClientClass {
+  constructor(tempClientCount) {
+    this.clientCount = tempClientCount;
+    this.clientArray = [];
+    this.clientUpdateQueue = [];
+    this.initClientArray();
   }
-  i = Math.floor(h * 6);
-  f = h * 6 - i;
-  p = v * (1 - s);
-  q = v * (1 - f * s);
-  t = v * (1 - (1 - f) * s);
-  switch (i % 6) {
-      case 0: r = v, g = t, b = p; break;
-      case 1: r = q, g = v, b = p; break;
-      case 2: r = p, g = v, b = t; break;
-      case 3: r = p, g = q, b = v; break;
-      case 4: r = t, g = p, b = v; break;
-      case 5: r = v, g = p, b = q; break;
-  }
-  return {
-      r: Math.round(r * 255),
-      g: Math.round(g * 255),
-      b: Math.round(b * 255)
-  };
-}
 
+  initClientArray() {
+    for (let i = 0; i < this.clientCount; i++) {
+      this.clientArray.push(51 * Math.ceil(4.9 * Math.random()));
+    }
+  }
+
+  clientJoin() {
+  }
+
+  clientLeave() {
+  }
+
+  randomStateChange() {
+    let randomSelect = Math.floor(Math.random() * this.clientCount);
+    let p = Math.random();
+    let currentState = 0;
+
+    if (p < 0.01) {
+      currentState = 0; // LoggedOut
+    } else if (p < 0.20) {
+      currentState = 51; // AfterCall
+    } else if (p < 0.35) {
+      currentState = 102;  // PreviewingTask
+    } else if (p < 0.65) {
+      currentState = 153;  // Available
+    } else if (p < 0.70) {
+      currentState = 204;  // OnCall
+    } else {
+      currentState = 204;
+    }
+    let texIndex = this.getTextureIndex(randomSelect);
+    this.enqueueStateChanges(texIndex, currentState);
+  }
+
+  // This function maps the internal client index onto the texture. 1:1 for now.
+  getTextureIndex(clientArrayIndex) {
+    return 4 * clientArrayIndex;
+  }
+
+  enqueueStateChanges(tempIndex, tempCurrent) {
+    this.clientUpdateQueue.push({
+      textureIndex: tempIndex,
+      currentState: tempCurrent,
+    });
+  }
+}
 
 class DotColor2 {
   constructor(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-    this.totalColors = this.texWidth * this.texHeight * 4;
-    this.colorArray = new Uint8Array(this.totalColors);
+    this.totalColors = this.texWidth * this.texHeight;
+    this.colorArray = new Uint8Array(this.totalColors * 4);
     this.initTexture();
   }
 
@@ -74,39 +149,59 @@ class DotColor2 {
   colorWalk() {
     let timeColor = 0;
     let spanWidthScalar = this.texWidth * 4.0;
-    for (let i = 0; i < this.totalColors; i = i + 4) {
+    for (let i = 0; i < this.colorArray.length; i += 4) {
       timeColor = performance.now() / 5;
       this.colorArray[i + 0] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.0) / spanWidthScalar));
       this.colorArray[i + 1] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.9) / spanWidthScalar));
       this.colorArray[i + 2] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.6) / spanWidthScalar));
       this.colorArray[i + 3] = 255;
     }
-    let xoff = 0;
-    let yoff = 0;
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, xoff, yoff, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray) 
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray)
   }
 
-  colorRandom() {
-    let timeColor = 0;
-    let spanWidthScalar = this.texWidth * 4.0;
-    for (let i = 0; i < this.totalColors; i = i + 4) {
-      timeColor = performance.now() / 2000;
-      let convert = HSVtoRGB((noise(i / 4 + timeColor)), 0.5, 1.0);
-      this.colorArray[i + 0] = convert.r;
-      this.colorArray[i + 1] = convert.g;
-      this.colorArray[i + 2] = convert.b;
-      this.colorArray[i + 3] = 255;
+  // OPTIMIZATION: if the texture size shrinks, just readjust the size.
+  updateTexture() {
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray)
+  }
+
+  setColorArray(initialArray) {
+    for (let i = 0; i < this.colorArray.length; i += 4) {
+      this.colorArray[i] = 0;
+      this.colorArray[i + 1] = initialArray[i];
+      this.colorArray[i + 2] = 0;
+      this.colorArray[i + 3] = 0;
     }
-    let xoff = 0;
-    let yoff = 0;
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, xoff, yoff, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray) 
+  }
+
+  // stateChangeArray follows the form [0, 1, 2, ...] -> textureIndex, previousState, currentState, ...
+  setStateChanges(stateChangeArray) {
+    for (let i = 0; i < stateChangeArray.length; i++) {
+      let tempIndex = stateChangeArray[i].textureIndex;
+      if (this.colorArray[tempIndex + 2] >= 255) {
+        this.colorArray[tempIndex] = this.colorArray[tempIndex + 1];
+        this.colorArray[tempIndex + 1] = stateChangeArray[i].currentState;
+        this.colorArray[tempIndex + 2] = 0;
+        this.colorArray[tempIndex + 3] = 0;
+        stateChangeArray.splice(i, 1);
+      } else if (this.colorArray[tempIndex + 2] == 0) {
+        this.colorArray[tempIndex + 1] = stateChangeArray[i].currentState;
+        this.colorArray[tempIndex + 3] = 0;
+        stateChangeArray.splice(i, 1);
+      }
+    }
+  }
+
+  updateAnimations(timeStretch) {
+    for (let i = 0; i < this.colorArray.length; i += 4) {
+      this.colorArray[i + 2] = Math.min(this.colorArray[i + 2] + timeStretch * 4.25 * 60 * Math.max(deltaTime, 0.01667), 255);
+    }
   }
 
   updateTextureDimensions(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-    this.totalColors = this.texWidth * this.texHeight * 4;
-    this.colorArray = new Uint8Array(this.totalColors);
+    this.totalColors = this.texWidth * this.texHeight;
+    this.colorArray = new Uint8Array(this.totalColors * 4);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   }
 }
@@ -195,19 +290,26 @@ class DotGrid2 {
   }
 }
 
-function updateShader(time) {
+function updateUniforms(time) {
   uniforms = {
-    u_time: time * 0.001,
-    u_resolution: [testDots2.gridWidth, testDots2.gridHeight],
+    u_time: time,
+    u_resolution: [glCanvas.width, glCanvas.height],
     u_mouse: [mouseX2, mouseY2],
-    u_background: [gridBG.r / 255, gridBG.g / 255, gridBG.b / 255, 1.0,],
     u_gridparams: [testDots2.gridColumns, testDots2.gridRows, testDots2.tileSize],
+    u_colortheme: dotColorTheme,
   };
 }
 
 function render(time) {
-  testColor2.colorRandom();
-  updateShader(time);
+  time *= 0.001;
+  deltaTime = time - prevTime;
+  prevTime = time;
+  updateUniforms(deltaTime);
+
+  testColor2.setStateChanges(testClient.clientUpdateQueue);
+  testColor2.updateAnimations(1.3333);
+  testColor2.updateTexture();
+
   twgl.resizeCanvasToDisplaySize(gl.canvas);
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
   gl.useProgram(programInfo.program);
@@ -218,7 +320,7 @@ function render(time) {
 }
 requestAnimationFrame(render);
 
-// Prepare WebGL (compile shaders, set default texture color, bind to canvas)
+// Prepare WebGL (compile shaders, bind to canvas).
 const gl = document.getElementById("cgl").getContext("webgl");
 const glCanvas = document.getElementById("cgl");
 const programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]);
@@ -230,18 +332,8 @@ const arrays = {
 };
 const bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
 
-function setup() {
-  createCanvas(100, 50);
-  background(153);
-  line(0, 0, width, height);
-}
-
-// Needed in order to use p5 functions.
-new p5();
-function setup() {
-  createCanvas(0, 0);
-}
-
+var prevTime = 0;
+var deltaTime = 0;
 var mouseX2 = 0;
 var mouseY2 = 0;
 var originX = -glCanvas.width / 2.0;
@@ -249,9 +341,13 @@ var originY = -glCanvas.height / 2.0;
 var mouseOverIndex = 0;
 var width2 = 0;
 var height2 = 0;
+var dotColorTheme = createColorTheme("client_slide");
 var testDotCount = 10000;
 var testDotPadding = 0.05;
-var gridBG = HSVtoRGB(0.3, 0.1, 1.0);
+var testClient = new ClientClass(testDotCount);
+testClient.initClientArray();
+clientDriver();
 var testDots2 = new DotGrid2(testDotCount, glCanvas.width, glCanvas.height, testDotPadding);
 var testColor2 = new DotColor2(testDots2.gridColumns, testDots2.gridRows);
-document.body.style.backgroundColor = 'rgb(' + gridBG.r + ',' + gridBG.g + ',' + gridBG.b + ')';
+
+testColor2.setColorArray(testClient.clientArray);
