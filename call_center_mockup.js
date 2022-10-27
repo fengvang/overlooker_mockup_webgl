@@ -2,7 +2,7 @@ var clearTime = 0;
 var clientTimer;
 function clientDriver() {
   clientTimer = setInterval(function () {
-    for (let i = 0; i < Math.floor(testDotCount / 2); i++) {
+    for (let i = 0; i < Math.floor(testDotCount / 8); i++) {
       testClient.randomStateChange();
     }
     // Clear clientUpdateQueue if frames aren't being rendered.
@@ -12,7 +12,7 @@ function clientDriver() {
       //console.log("clientUpdateQueue cleared!")
     }
     clearTime = deltaTime;
-  }, 500);
+  }, 50);
 }
 
 function createColorTheme(themeSelection) {
@@ -333,7 +333,7 @@ function render(time) {
 
   testColor2.setStateChanges(testClient.clientUpdateQueue);
   testClient.clientUpdateQueue = [];
-  testColor2.updateAnimations(1.3333);
+  testColor2.updateAnimations(1.666);
   testColor2.updateTexture();
 
   twgl.resizeCanvasToDisplaySize(gl.canvas);
