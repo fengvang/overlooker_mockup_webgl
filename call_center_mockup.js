@@ -111,7 +111,7 @@ class ClientClass {
     } else if (p < 0.70) {
       currentState = 51;   // OnCall
     } else {
-      currentState = 51;  
+      currentState = 51;
     }
     let texIndex = this.getTextureIndex(randomSelect);
     this.enqueueStateChanges(texIndex, currentState);
@@ -166,9 +166,18 @@ class DotColor2 {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray)
   }
 
-  // OPTIMIZATION: if the texture size shrinks, just readjust the size.
   updateTexture() {
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray);
+  }
+
+  updateTextureDimensions(tempWidth, tempHeight) {
+    this.texWidth = tempWidth;
+    this.texHeight = tempHeight;
+    this.totalColors = tempWidth * tempHeight;
+
+    let newColorArray = new ArrayBuffer(tempWidth * tempHeight * 4 * 8);
+    new Uint8Array(newColorArray).set(new Uint8Array(this.colorArray));
+    this.colorArray = new Uint8Array(newColorArray, 0, tempWidth * tempHeight * 4);
   }
 
   setColorArray(initialArray) {
@@ -216,17 +225,9 @@ class DotColor2 {
         this.colorArray[i + 2] = 0; // Reset timer.
         this.colorArray[i + 3] = 0; // Clear buffer.
       } else {
-      this.colorArray[i + 3] = Math.min(this.colorArray[i + 3] + timeStretch * 4.25 * 60 * Math.max(deltaTime, 0.01667), 255);
+        this.colorArray[i + 3] = Math.min(this.colorArray[i + 3] + timeStretch * 4.25 * 60 * Math.max(deltaTime, 0.01667), 255);
       }
     }
-  }
-
-  updateTextureDimensions(tempWidth, tempHeight) {
-    this.texWidth = tempWidth;
-    this.texHeight = tempHeight;
-    this.totalColors = this.texWidth * this.texHeight;
-    this.colorArray = new Uint8Array(this.totalColors * 4);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   }
 }
 
