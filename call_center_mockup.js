@@ -1,36 +1,43 @@
+var clearTime = 0;
 var clientTimer;
 function clientDriver() {
   clientTimer = setInterval(function () {
     for (let i = 0; i < Math.floor(testDotCount / 2); i++) {
       testClient.randomStateChange();
     }
+    // Clear clientUpdateQueue if frames aren't being rendered.
+    if (clearTime == deltaTime) {
+      testColor2.setStateChanges(testClient.clientUpdateQueue);
+      testClient.clientUpdateQueue = [];
+      //console.log("clientUpdateQueue cleared!")
+    }
+    clearTime = deltaTime;
   }, 500);
 }
 
 function createColorTheme(themeSelection) {
-  let colorOnCall, colorAvailable, colorPreviewingTask, 
-  colorAfterCall, colorLoggedOut, colorBackground;
+  let colorOnCall, colorAvailable, colorPreviewingTask,
+    colorAfterCall, colorLoggedOut, colorBackground;
 
   switch (themeSelection) {
     case "user":
       // Values from CSS color picker go here.
       break;
     case "original":
+      colorBackground = [235, 255, 230, 255];     // light green
       colorOnCall = [149, 255, 127, 255];         // green
       colorAvailable = [127, 255, 241, 255];      // aqua
       colorPreviewingTask = [255, 240, 127, 255]; // yellow
       colorAfterCall = [141, 127, 255, 255];      // purple
       colorLoggedOut = [211, 229, 207, 255];      // grey
-      colorBackground = [235, 255, 230, 255];     // light green
       break;
     case "client_slide":
+      colorBackground = [0, 0, 0, 255];        // black
       colorOnCall = [243, 108, 82, 255];        // red
       colorAvailable = [63, 191, 177, 255];     // green
       colorPreviewingTask = [0, 110, 184, 255]; // blue
       colorAfterCall = [255, 205, 52, 255];     // yellow
       colorLoggedOut = [0, 48, 70, 255];        // dark blue
-      //colorBackground = [226, 222, 217, 255] ;  // beige
-      colorBackground = [0, 0, 0, 255] ;        // black
       break;
   }
   let tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
@@ -41,8 +48,8 @@ function createColorTheme(themeSelection) {
     tempColorTheme[i] = tempColorTheme[i] / 255;
   }
 
-  document.body.style.backgroundColor = 'rgb(' + colorBackground[0] + ',' 
-  + colorBackground[1] + ',' + colorBackground[2] + ')';
+  document.body.style.backgroundColor = 'rgb(' + colorBackground[0] + ','
+    + colorBackground[1] + ',' + colorBackground[2] + ')';
   return tempColorTheme;
 }
 
@@ -94,17 +101,17 @@ class ClientClass {
     let currentState = 0;
 
     if (p < 0.01) {
-      currentState = 0; // LoggedOut
+      currentState = 255;  // LoggedOut
     } else if (p < 0.20) {
-      currentState = 51; // AfterCall
+      currentState = 204;  // AfterCall
     } else if (p < 0.35) {
-      currentState = 102;  // PreviewingTask
+      currentState = 153;  // PreviewingTask
     } else if (p < 0.65) {
-      currentState = 153;  // Available
+      currentState = 102;  // Available
     } else if (p < 0.70) {
-      currentState = 204;  // OnCall
+      currentState = 51;   // OnCall
     } else {
-      currentState = 204;
+      currentState = 51;  
     }
     let texIndex = this.getTextureIndex(randomSelect);
     this.enqueueStateChanges(texIndex, currentState);
@@ -173,27 +180,44 @@ class DotColor2 {
     }
   }
 
-  // stateChangeArray follows the form [0, 1, 2, ...] -> textureIndex, previousState, currentState, ...
   setStateChanges(stateChangeArray) {
+    var tempIndex = 0;
+    var tempState = 0;
+    var tempTimer = 0;
+    var tempBuffer = 0;
     for (let i = 0; i < stateChangeArray.length; i++) {
-      let tempIndex = stateChangeArray[i].textureIndex;
-      if (this.colorArray[tempIndex + 2] >= 255) {
-        this.colorArray[tempIndex] = this.colorArray[tempIndex + 1];
-        this.colorArray[tempIndex + 1] = stateChangeArray[i].currentState;
-        this.colorArray[tempIndex + 2] = 0;
-        this.colorArray[tempIndex + 3] = 0;
-        stateChangeArray.splice(i, 1);
-      } else if (this.colorArray[tempIndex + 2] == 0) {
-        this.colorArray[tempIndex + 1] = stateChangeArray[i].currentState;
-        this.colorArray[tempIndex + 3] = 0;
-        stateChangeArray.splice(i, 1);
+      tempIndex = stateChangeArray[i].textureIndex;
+      tempState = stateChangeArray[i].currentState;
+      tempTimer = this.colorArray[tempIndex + 3];
+
+      switch (tempTimer) {
+        case 0: // Animation not started.
+          this.colorArray[tempIndex + 1] = tempState; // Update endColor.
+          this.colorArray[tempIndex + 2] = 0; // Clear the buffer.
+          break;
+        case 255: // Animation finished.
+          this.colorArray[tempIndex + 0] = this.colorArray[tempIndex + 1]; // Swap startColor and endColor.
+          this.colorArray[tempIndex + 1] = tempState; // Update endColor.
+          this.colorArray[tempIndex + 2] = 0; // Clear the buffer.
+          this.colorArray[tempIndex + 3] = 0; // Reset timer.
+          break;
+        default: // Animation ongoing.
+          this.colorArray[tempIndex + 2] = tempState; // Store in buffer. 
       }
-    }
+    } // Don't forget to empty stateChangeArray after calling this function!
   }
 
+  // TODO: move animation updates to a texture shader.
   updateAnimations(timeStretch) {
     for (let i = 0; i < this.colorArray.length; i += 4) {
-      this.colorArray[i + 2] = Math.min(this.colorArray[i + 2] + timeStretch * 4.25 * 60 * Math.max(deltaTime, 0.01667), 255);
+      if (this.colorArray[i + 2] != 0 && this.colorArray[i + 3] >= 255) {
+        this.colorArray[i] = this.colorArray[i + 1]; // Swap startColor with endColor.
+        this.colorArray[i + 1] = this.colorArray[i + 2]; // Swap buffer into endColor.
+        this.colorArray[i + 2] = 0; // Reset timer.
+        this.colorArray[i + 3] = 0; // Clear buffer.
+      } else {
+      this.colorArray[i + 3] = Math.min(this.colorArray[i + 3] + timeStretch * 4.25 * 60 * Math.max(deltaTime, 0.01667), 255);
+      }
     }
   }
 
@@ -307,6 +331,7 @@ function render(time) {
   updateUniforms(deltaTime);
 
   testColor2.setStateChanges(testClient.clientUpdateQueue);
+  testClient.clientUpdateQueue = [];
   testColor2.updateAnimations(1.3333);
   testColor2.updateTexture();
 
