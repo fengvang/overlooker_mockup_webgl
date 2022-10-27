@@ -41,41 +41,29 @@
     return smoothstep(0.5 + aa_factor, 0.5 - aa_factor, l);
   }
 
-  float circle_shift(in vec2 _st, in float _timer) { 
-    float l = length(_st.xy - 0.5);
-    return smoothstep(0.5 + _timer / 4., 0.5 - _timer/4., l);
-  }
-
-  /*
-  colorOnCall = [149.0, 255.0, 127.0, 255]; // green -> 0.2
-  colorAvailable = [127.0, 255.0, 241.0, 255]; // aqua
-  colorPreviewingTask = [255.0, 240.0, 127.0, 255]; // yellow
-  colorAfterCall = [141.0, 127.0, 255.0, 255]; // purple
-  colorLoggedOut = [211.0, 229.0, 207.0, 255]; // grey
-    */
-
+  // TODO: move to a texture shader to minimize branching penalty.
   vec4 colorCheck(in float _code) {
     vec4 _color = vec4(0.0);
     if (_code <= 0.0) {
-      _color = u_colortheme[0];
-    } else if (_code <= 0.2) {
-      _color = u_colortheme[1];
-    } else if (_code <= 0.4) {
-      _color = u_colortheme[2];
-    } else if (_code <= 0.6) {
-      _color = u_colortheme[3];
-    } else if (_code <= 0.8) {
-      _color = u_colortheme[4];
-    } else {
       if (u_colortheme[5].x + u_colortheme[5].y + u_colortheme[5].z < 1.0) {
-        _color = u_colortheme[5] + vec4(0.1, 0.1, 0.1, 0.0);
+        _color = u_colortheme[0] + vec4(0.2, 0.2, 0.2, 0.0); // Uninit
       } else {
-        _color = u_colortheme[5] - vec4(0.1, 0.1, 0.1, 0.0);
+        _color = u_colortheme[0] - vec4(0.2, 0.2, 0.2, 0.0); // Uninit
       }
+    } else if (_code <= 0.2) {
+      _color = u_colortheme[1]; // OnCall
+    } else if (_code <= 0.4) {
+      _color = u_colortheme[2]; // Available
+    } else if (_code <= 0.6) {
+      _color = u_colortheme[3]; // PreviewingTask
+    } else if (_code <= 0.8) {
+      _color = u_colortheme[4]; // AfterCall
+    } else {
+      _color = u_colortheme[5]; // LoggedOut
     }
     return _color;
   }
-  
+
   void main() {
       vec2 st = gl_FragCoord.xy / u_resolution.xy;
       st.xy *= u_gridparams.xy;
@@ -85,8 +73,9 @@
       vec4 start_color = colorCheck(tex_color.x);
       vec4 end_color = colorCheck(tex_color.y);
 
-      vec4 shaded = mix(start_color, end_color, tex_color.z);
+      vec4 shaded = mix(start_color, end_color, tex_color.w);
 
+      // TODO: fix transparency penalty.
       gl_FragColor = mix(vec4(0.0), shaded, circle(st));
   }
       </script>
