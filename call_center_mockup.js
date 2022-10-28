@@ -1,22 +1,30 @@
-var gridMain, gridSearch, texMain, texSearch,
-  userSim;
+var gridMain, gridSearch, texMain, texSearch, userSim;
 var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
 var colorTheme, mouseX, mouseY, prevTime, deltaTime;
 
 function setup() {
   initWebGL("cgl");
+  colorTheme = setColorTheme("clientSlide");
   let tempUserCount = 10000;
   let dotPadding = 0.05;
   let simulationTickRate = 50;
-  colorTheme = setColorTheme("clientSlide");
-  userSim = new UserSimulator(tempUserCount, simulationTickRate);
+
   gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
+  canvasResized = document.querySelector("body");
+
+  userSim = new UserSimulator(tempUserCount, simulationTickRate);
   texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
   userSim.updatesPerTick = tempUserCount / 8;
-  canvasResized = document.querySelector("body");
   myObserver.observe(canvasResized);
 
   requestAnimationFrame(render);
+}
+
+function layoutA() {
+  // colorTheme = setColorTheme("original"); 
+  userSim.setStateChanges(texMain.texArray);
+  texMain.updateAnimations(1.666);
+  texMain.updateTexture();
 }
 
 // Main draw loop.
@@ -25,11 +33,9 @@ function render(time) {
   deltaTime = time - prevTime;
   updateUniforms(deltaTime);
   prevTime = time;
+  layoutA();
 
-  userSim.setStateChanges(texMain.texArray);
-  texMain.updateAnimations(1.666);
-  texMain.updateTexture();
-
+  // May be possible to move some these out of the draw loop for better perf.
   twgl.resizeCanvasToDisplaySize(gl.canvas);
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
   gl.useProgram(programInfo.program);
@@ -50,11 +56,9 @@ function updateUniforms(time) {
 }
 
 function initWebGL(canvasID) {
-
-  // Bind to canvas, compile shaders.
   gridCanvas = document.getElementById(canvasID);
   gl = gridCanvas.getContext("webgl", { alpha: false });
-  programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]);
+  programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]); // Compile shaders.
 
   // Makes the shader draw onto a simple quad.
   const arrays = {
@@ -64,7 +68,7 @@ function initWebGL(canvasID) {
   bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
 }
 
-// Runs any time the browser window is resized.
+// Runs on window resize:
 const myObserver = new ResizeObserver(entries => {
   entries.forEach(entry => {
     let tempWidth = entry.contentRect.width;
@@ -78,6 +82,9 @@ const myObserver = new ResizeObserver(entries => {
   });
 });
 
+// Simple theme selection:
+// The values are sent through an array uniform and used by the
+// fragment shader when evaluating the data texture.
 function setColorTheme(themeSelection) {
   let colorOnCall, colorAvailable, colorPreviewingTask,
     colorAfterCall, colorLoggedOut, colorBackground;
@@ -107,6 +114,8 @@ function setColorTheme(themeSelection) {
     colorAvailable, colorOnCall, colorBackground);
 
   // Normalize values for the shader.
+  // POTENTIAL BUG: normalization on the Javascript side may cause
+  // less accurate colors - needs research. 
   for (let i = 0; i < tempColorTheme.length; i++) {
     tempColorTheme[i] = tempColorTheme[i] / 255;
   }
@@ -142,7 +151,7 @@ class UserSimulator {
   initProbArray() {
     this.probArray = {
       loggedOut: 0.01, afterCall: 0.2, prevTask: 0.35,
-      avail: 0.65, onCall: 0.7
+      avail: 0.65, onCall: 0.7,
     };
   }
 
@@ -152,9 +161,11 @@ class UserSimulator {
   userLeave() {
   }
 
-  // Each number corresponds to a multiple of 1/5 which give
-  // safer floats after normalization.
-  // TODO: implement limiting mechanism that dumps queue if it has grown too large.
+  // Enqueues a number of state changes each tick:
+  // Javascript Space->Shader Space:
+  // {0, 51, 102, 153, 204, 255}->{0.0, 0.2, 0.4, 0.6, 0.8, 1.0} 
+  //
+  // TODO: pop queues that grow too large before additional pushes.
   randomStateChange() {
     for (let i = 0; i < this.updatesPerTick; i++) {
       let randomSelect = Math.floor(Math.random() * this.userCount);
@@ -190,9 +201,9 @@ class UserSimulator {
   }
 
   // Javascript Space->Shader Space:
-  // UInt8Array(0...255)->vec4(0...1)
-  // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a}
-  // Both Domains: {startColor, endColor, buffColor, Timer}
+  // UInt8Array(0...255)->vec4(0.0...1.0)
+  // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
+  // = {startColor, endColor, buffColor, Timer}
   // TODO: implement w/ single tex channel via float packing.
   setStateChanges(tempTexArray) {
     var j, tempState, tempTimer;
@@ -226,16 +237,16 @@ class DataTexture {
   constructor(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-    this.totalColors = this.texWidth * this.texHeight;
-    this.texArray = new Uint8Array(this.totalColors * 4);
+    this.texelCount = this.texWidth * this.texHeight;
+    this.texArray = new Uint8Array(this.texelCount * 4);
     this.initTexture();
   }
 
   initTexture() {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    this.colorTexture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.colorTexture);
+    this.dataTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.dataTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 
     // Don't generate mip maps.
@@ -249,18 +260,29 @@ class DataTexture {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray)
   }
 
+  // Resizes the texArray used by gl.texSubImage2D to create the texture:
+  // Sets a new end point for texArray if the texture shrinks.
+  // Copies values using an ArrayBuffer if the texture grows. 
+  //
+  // TODO: copyTexSubImage2D + framebuffer would be faster + smoother; would need to move
+  // state updates to a separate texture + write a shader for it first.
+  // POTENTIAL BUG: texture shrinking may cause orphaning, needs a look at.
   updateTextureDimensions(tempWidth, tempHeight) {
+    var tempTexelCount = tempWidth * tempHeight;
+    if (this.texWidth > tempWidth && this.texHeight > tempHeight) {
+      this.texArray = this.texArray.subarray(0, tempTexelCount * 4);
+    } else if (this.texelCount > tempTexelCount) {
+      this.texArray = this.texArray.subarray(0, tempTexelCount * 4);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    } else {
+      let tempArray = new ArrayBuffer(tempTexelCount * 4 * 8);
+      new Uint8Array(tempArray).set(new Uint8Array(this.texArray));
+      this.texArray = new Uint8Array(tempArray, 0, tempTexelCount * 4);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    }
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-      if (this.totalColors > tempWidth * tempHeight) {
-        this.texArray = this.texArray.subarray(0, tempWidth * tempHeight * 4);
-        this.totalColors = tempWidth * tempHeight;
-      } else {
-        let tempArray = new ArrayBuffer(tempWidth * tempHeight * 4 * 8);
-        new Uint8Array(tempArray).set(new Uint8Array(this.texArray));
-        this.texArray = new Uint8Array(tempArray, 0, tempWidth * tempHeight * 4);
-      }
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    this.texelCount = tempTexelCount;
   }
 
   setTexArray(initialArray) {
@@ -272,7 +294,12 @@ class DataTexture {
     }
   }
 
-  // TODO: move animation updates to a texture shader.
+  // Increments the timer and pops buffColor:
+  // Javascript Space->Shader Space:
+  // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
+  // = {startColor, endColor, buffColor, Timer}
+  //
+  // TODO: move animation updates to a buffer + new fragment shader.
   updateAnimations(timeStretch) {
     for (let i = 0; i < this.texArray.length; i += 4) {
       // Animation has completed.
