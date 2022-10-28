@@ -1,43 +1,105 @@
-var clearTime = 0;
-var clientTimer;
-function clientDriver() {
-  clientTimer = setInterval(function () {
-    for (let i = 0; i < Math.floor(testDotCount / 8); i++) {
-      testClient.randomStateChange();
-    }
-    // Clear clientUpdateQueue if frames aren't being rendered.
-    if (clearTime == deltaTime) {
-      testColor2.setStateChanges(testClient.clientUpdateQueue);
-      testClient.clientUpdateQueue = [];
-      //console.log("clientUpdateQueue cleared!")
-    }
-    clearTime = deltaTime;
-  }, 50);
+var gridMain, gridSearch, texMain, texSearch,
+  userSim;
+var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
+var colorTheme, mouseX, mouseY, prevTime, deltaTime;
+
+function setup() {
+  initWebGL("cgl");
+  let tempUserCount = 10000;
+  let dotPadding = 0.05;
+  colorTheme = setColorTheme("clientSlide");
+  userSim = new UserSimulator(tempUserCount);
+  gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
+  texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
+  userSim.simUpdates = tempUserCount / 8;
+  canvasResized = document.querySelector("body");
+  myObserver.observe(canvasResized);
+
+  requestAnimationFrame(render);
 }
 
-function createColorTheme(themeSelection) {
+// Main draw loop.
+function render(time) {
+  time *= 0.001;
+  deltaTime = time - prevTime;
+  updateUniforms(deltaTime);
+  prevTime = time;
+
+  userSim.setStateChanges(texMain.texArray);
+  texMain.updateAnimations(1.666);
+  texMain.updateTexture();
+
+  twgl.resizeCanvasToDisplaySize(gl.canvas);
+  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+  gl.useProgram(programInfo.program);
+  twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
+  twgl.setUniforms(programInfo, uniforms);
+  twgl.drawBufferInfo(gl, bufferInfo);
+  requestAnimationFrame(render);
+}
+
+function updateUniforms(time) {
+  uniforms = {
+    u_time: time,
+    u_resolution: [gridCanvas.width, gridCanvas.height],
+    u_mouse: [mouseX, mouseY],
+    u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.tileSize],
+    u_colortheme: colorTheme,
+  };
+}
+
+function initWebGL(canvasID) {
+
+  // Bind to canvas, compile shaders.
+  gridCanvas = document.getElementById(canvasID);
+  gl = gridCanvas.getContext("webgl", { alpha: false });
+  programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]);
+
+  // Makes the shader draw onto a simple quad.
+  const arrays = {
+    a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1],
+    a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
+  };
+  bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
+}
+
+// Runs any time the browser window is resized.
+const myObserver = new ResizeObserver(entries => {
+  entries.forEach(entry => {
+    let tempWidth = entry.contentRect.width;
+    let tempHeight = entry.contentRect.height;
+    gridMain.updateTilingMaxSpan(tempWidth, tempHeight);
+    texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
+
+    // Uses CSS to introduce margins so the shader doesn't warp on resize.
+    gridCanvas.style.width = gridMain.gridWidth + "px";
+    gridCanvas.style.height = gridMain.gridHeight + "px";
+  });
+});
+
+function setColorTheme(themeSelection) {
   let colorOnCall, colorAvailable, colorPreviewingTask,
     colorAfterCall, colorLoggedOut, colorBackground;
 
   switch (themeSelection) {
-    case "user":
+    case 'user':
       // Values from CSS color picker go here.
       break;
-    case "original":
-      colorBackground = [235, 255, 230, 255];     // light green
-      colorOnCall = [149, 255, 127, 255];         // green
-      colorAvailable = [127, 255, 241, 255];      // aqua
-      colorPreviewingTask = [255, 240, 127, 255]; // yellow
-      colorAfterCall = [141, 127, 255, 255];      // purple
-      colorLoggedOut = [211, 229, 207, 255];      // grey
+    case 'original':
+      colorBackground = [235, 255, 230, 255];
+      colorOnCall = [149, 255, 127, 255];
+      colorAvailable = [127, 255, 241, 255];
+      colorPreviewingTask = [255, 240, 127, 255];
+      colorAfterCall = [141, 127, 255, 255];
+      colorLoggedOut = [211, 229, 207, 255];
       break;
-    case "client_slide":
-      colorBackground = [0, 0, 0, 255];        // black
-      colorOnCall = [243, 108, 82, 255];        // red
-      colorAvailable = [63, 191, 177, 255];     // green
-      colorPreviewingTask = [0, 110, 184, 255]; // blue
-      colorAfterCall = [255, 205, 52, 255];     // yellow
-      colorLoggedOut = [0, 48, 70, 255];        // dark blue
+    case 'clientSlide':
+      colorBackground = [0, 0, 0, 255];
+      colorOnCall = [243, 108, 82, 255];
+      colorAvailable = [63, 191, 177, 255];
+      colorPreviewingTask = [0, 110, 184, 255];
+      colorAfterCall = [255, 205, 52, 255];
+      colorLoggedOut = [0, 48, 70, 255];
       break;
   }
   let tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
@@ -48,95 +110,129 @@ function createColorTheme(themeSelection) {
     tempColorTheme[i] = tempColorTheme[i] / 255;
   }
 
-  document.body.style.backgroundColor = 'rgb(' + colorBackground[0] + ','
-    + colorBackground[1] + ',' + colorBackground[2] + ')';
+  document.body.style.backgroundColor = "rgb(" + colorBackground[0] + ","
+    + colorBackground[1] + "," + colorBackground[2] + ")";
   return tempColorTheme;
 }
 
-document.addEventListener('mousemove',
-  function (event) {
-    mouseX2 = event.pageX;
-    mouseY2 = glCanvas.height - event.pageY;
-  })
+class UserSimulator {
+  constructor(tempUserCount) {
+    this.userCount = tempUserCount;
+    this.userArray = [];
 
-// Runs any time the browser window is resized.
-const myObserver = new ResizeObserver(entries => {
-  entries.forEach(entry => {
-    width2 = entry.contentRect.width;
-    height2 = entry.contentRect.height;
-    testDots2.updateTilingMaxSpan(width2, height2);
-    testColor2.updateTextureDimensions(testDots2.gridColumns, testDots2.gridRows);
+    this.probArray = [];
+    this.simUpdates = 0;
+    this.simTickRate = 0;
+    this.stateUpdateQueue = [];
+    this.initUserArray();
+    this.initProbArray();
 
-    // Uses CSS to introduce margins so the shader doesn't warp on resize.
-    // Only use integer values - partial pixels cause artifacting.
-    glCanvas.style.width = testDots2.gridWidth + "px";
-    glCanvas.style.height = testDots2.gridHeight + "px";
-  });
-});
-const canvasResized = document.querySelector('body');
-myObserver.observe(canvasResized);
+    setInterval(
+      this.randomStateChange.bind(this),
 
-class ClientClass {
-  constructor(tempClientCount) {
-    this.clientCount = tempClientCount;
-    this.clientArray = [];
-    this.clientUpdateQueue = [];
-    this.initClientArray();
+      //for (let i = 0; i < Math.floor(this.userCount / 8); i++) {
+      //  this.randomStateChange();
+      //}
+      // Clear stateUpdateQueue if frames aren't being rendered.
+      //this.randomStateChange();
+
+      //this.setStateChanges(texMain.texArray);
+      50);
   }
 
-  initClientArray() {
-    for (let i = 0; i < this.clientCount; i++) {
-      this.clientArray.push(51 * Math.ceil(4.9 * Math.random()));
+  initUserArray() {
+    for (let i = 0; i < this.userCount; i++) {
+      this.userArray.push(51 * Math.ceil(4.9 * Math.random()));
     }
   }
 
-  clientJoin() {
+  initProbArray() {
+    this.probArray = {
+      loggedOut: 0.01, afterCall: 0.2, prevTask: 0.35,
+      avail: 0.65, onCall: 0.7
+    };
   }
 
-  clientLeave() {
+  userJoin() {
   }
 
+  userLeave() {
+  }
+
+  // Each number corresponds to a multiple of 1/5 because they give
+  // a clean float after normalization.
   randomStateChange() {
-    let randomSelect = Math.floor(Math.random() * this.clientCount);
-    let p = Math.random();
-    let currentState = 0;
+    for (let i = 0; i < this.simUpdates; i++) {
+      let randomSelect = Math.floor(Math.random() * this.userCount);
+      let p = Math.random();
+      let currentState = 0;
 
-    if (p < 0.01) {
-      currentState = 255;  // LoggedOut
-    } else if (p < 0.20) {
-      currentState = 204;  // AfterCall
-    } else if (p < 0.35) {
-      currentState = 153;  // PreviewingTask
-    } else if (p < 0.65) {
-      currentState = 102;  // Available
-    } else if (p < 0.70) {
-      currentState = 51;   // OnCall
-    } else {
-      currentState = 51;
+      if (p < this.probArray.loggedOut) {
+        currentState = 255;
+      } else if (p < this.probArray.afterCall) {
+        currentState = 204;
+      } else if (p < this.probArray.prevTask) {
+        currentState = 153;
+      } else if (p < this.probArray.avail) {
+        currentState = 102;
+      } else if (p < this.probArray.onCall) {
+        currentState = 51;
+      } else {
+        currentState = 51;
+      }
+      this.pushStateChange(this.getTextureIndex(randomSelect), currentState);
     }
-    let texIndex = this.getTextureIndex(randomSelect);
-    this.enqueueStateChanges(texIndex, currentState);
   }
 
-  // This function maps the internal client index onto the texture. 1:1 for now.
-  getTextureIndex(clientArrayIndex) {
-    return 4 * clientArrayIndex;
+  getTextureIndex(userArrayIndex) {
+    return 4 * userArrayIndex;
   }
 
-  enqueueStateChanges(tempIndex, tempCurrent) {
-    this.clientUpdateQueue.push({
+  pushStateChange(tempIndex, tempCurrent) {
+    this.stateUpdateQueue.push({
       textureIndex: tempIndex,
       currentState: tempCurrent,
     });
   }
+
+  // Javascript Space->Shader Space:
+  // UInt8Array(0...255)->vec4(0...1)
+  // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a}
+  // TODO: implement w/ single tex channel via float packing.
+  setStateChanges(tempTexArray) {
+    var j, tempState, tempTimer;
+    for (let i = 0; i < this.stateUpdateQueue.length; i++) {
+      j = this.stateUpdateQueue[i].textureIndex;
+      tempState = this.stateUpdateQueue[i].currentState;
+      tempTimer = tempTexArray[j + 3];
+      switch (tempTimer) {
+        case 0:
+          // Animation not started.
+          tempTexArray[j + 1] = tempState;           // newColor->endColor.
+          tempTexArray[j + 2] = 0;                   // 0->buffColor.
+          break;
+        case 255:
+          // Animation finished.
+          tempTexArray[j + 0] = tempTexArray[j + 1]; // endColor->startColor.
+          tempTexArray[j + 1] = tempState;           // newColor->endColor.
+          tempTexArray[j + 2] = 0;                   // 0->buffColor.
+          tempTexArray[j + 3] = 0;                   // 0->Timer.
+          break;
+        default:
+          // Animation ongoing.
+          tempTexArray[j + 2] = tempState;           // newColor->buffColor. 
+      }
+    }
+    this.stateUpdateQueue = [];
+  }
 }
 
-class DotColor2 {
+class DataTexture {
   constructor(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
     this.totalColors = this.texWidth * this.texHeight;
-    this.colorArray = new Uint8Array(this.totalColors * 4);
+    this.texArray = new Uint8Array(this.totalColors * 4);
     this.initTexture();
   }
 
@@ -154,21 +250,8 @@ class DotColor2 {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
-  colorWalk() {
-    let timeColor = 0;
-    let spanWidthScalar = this.texWidth * 4.0;
-    for (let i = 0; i < this.colorArray.length; i += 4) {
-      timeColor = performance.now() / 5;
-      this.colorArray[i + 0] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.0) / spanWidthScalar));
-      this.colorArray[i + 1] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.9) / spanWidthScalar));
-      this.colorArray[i + 2] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.6) / spanWidthScalar));
-      this.colorArray[i + 3] = 255;
-    }
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray)
-  }
-
   updateTexture() {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.colorArray);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray);
   }
 
   updateTextureDimensions(tempWidth, tempHeight) {
@@ -176,63 +259,51 @@ class DotColor2 {
     this.texHeight = tempHeight;
     this.totalColors = tempWidth * tempHeight;
 
-    let newColorArray = new ArrayBuffer(tempWidth * tempHeight * 4 * 8);
-    new Uint8Array(newColorArray).set(new Uint8Array(this.colorArray));
-    this.colorArray = new Uint8Array(newColorArray, 0, tempWidth * tempHeight * 4);
+    let newtexArray = new ArrayBuffer(tempWidth * tempHeight * 4 * 8);
+    new Uint8Array(newtexArray).set(new Uint8Array(this.texArray));
+    this.texArray = new Uint8Array(newtexArray, 0, tempWidth * tempHeight * 4);
   }
 
-  setColorArray(initialArray) {
-    for (let i = 0; i < this.colorArray.length; i += 4) {
-      this.colorArray[i] = 0;
-      this.colorArray[i + 1] = initialArray[i];
-      this.colorArray[i + 2] = 0;
-      this.colorArray[i + 3] = 0;
+  setTexArray(initialArray) {
+    for (let i = 0; i < this.texArray.length; i += 4) {
+      this.texArray[i] = 0;
+      this.texArray[i + 1] = initialArray[i];
+      this.texArray[i + 2] = 0;
+      this.texArray[i + 3] = 0;
     }
-  }
-
-  setStateChanges(stateChangeArray) {
-    var tempIndex = 0;
-    var tempState = 0;
-    var tempTimer = 0;
-    var tempBuffer = 0;
-    for (let i = 0; i < stateChangeArray.length; i++) {
-      tempIndex = stateChangeArray[i].textureIndex;
-      tempState = stateChangeArray[i].currentState;
-      tempTimer = this.colorArray[tempIndex + 3];
-
-      switch (tempTimer) {
-        case 0: // Animation not started.
-          this.colorArray[tempIndex + 1] = tempState; // Update endColor.
-          this.colorArray[tempIndex + 2] = 0; // Clear the buffer.
-          break;
-        case 255: // Animation finished.
-          this.colorArray[tempIndex + 0] = this.colorArray[tempIndex + 1]; // Swap startColor and endColor.
-          this.colorArray[tempIndex + 1] = tempState; // Update endColor.
-          this.colorArray[tempIndex + 2] = 0; // Clear the buffer.
-          this.colorArray[tempIndex + 3] = 0; // Reset timer.
-          break;
-        default: // Animation ongoing.
-          this.colorArray[tempIndex + 2] = tempState; // Store in buffer. 
-      }
-    } // Don't forget to empty stateChangeArray after calling this function!
   }
 
   // TODO: move animation updates to a texture shader.
   updateAnimations(timeStretch) {
-    for (let i = 0; i < this.colorArray.length; i += 4) {
-      if (this.colorArray[i + 2] != 0 && this.colorArray[i + 3] >= 255) {
-        this.colorArray[i] = this.colorArray[i + 1]; // Swap startColor with endColor.
-        this.colorArray[i + 1] = this.colorArray[i + 2]; // Swap buffer into endColor.
-        this.colorArray[i + 2] = 0; // Reset timer.
-        this.colorArray[i + 3] = 0; // Clear buffer.
+    for (let i = 0; i < this.texArray.length; i += 4) {
+      // Animation has completed.
+      if (this.texArray[i + 2] != 0 && this.texArray[i + 3] >= 255) {
+        this.texArray[i] = this.texArray[i + 1];     // endColor->startColor.
+        this.texArray[i + 1] = this.texArray[i + 2]; // buffColor->endColor.
+        this.texArray[i + 2] = 0;                    // 0->buffColor.
+        this.texArray[i + 3] = 0;                    // 0->timer.
       } else {
-        this.colorArray[i + 3] = Math.min(this.colorArray[i + 3] + timeStretch * 4.25 * 60 * Math.max(deltaTime, 0.01667), 255);
+        this.texArray[i + 3] = Math.min(this.texArray[i + 3] + timeStretch * 4.25 * 60 * Math.max(deltaTime, 0.01667), 255);
       }
     }
   }
+
+  // Test animation for showcasing framerate.
+  colorWalk() {
+    let timeColor = 0;
+    let spanWidthScalar = this.texWidth * 4.0;
+    for (let i = 0; i < this.texArray.length; i += 4) {
+      timeColor = performance.now() / 5;
+      this.texArray[i + 0] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.0) / spanWidthScalar));
+      this.texArray[i + 1] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.9) / spanWidthScalar));
+      this.texArray[i + 2] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.6) / spanWidthScalar));
+      this.texArray[i + 3] = 255;
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray)
+  }
 }
 
-class DotGrid2 {
+class UserGrid {
   constructor(tempDotCount, canvasWidth, canvasHeight, tempPadding) {
     this.dotCount = tempDotCount;
     this.dotPadding = tempPadding;
@@ -245,7 +316,6 @@ class DotGrid2 {
     this.gridColumns = 0;
     this.tileSize = 0;
     this.updateTilingMaxSpan(canvasWidth, canvasHeight);
-    this.updateMouseOverIndex();
   }
 
   // Main tiling algorithm:
@@ -294,10 +364,11 @@ class DotGrid2 {
 
   // Finds the index of the dot underneath the mouse:
   // Treats dots as circular if there are less than 1000.
-  updateMouseOverIndex() {
-    let inverseScanX = Math.floor((mouseX2 - this.gridMarginX) / this.tileSize);
-    let inverseScanY = Math.floor((mouseY2 - this.gridMarginY) / this.tileSize);
+  getMouseOverIndex() {
+    let inverseScanX = Math.floor((mouseX - this.gridMarginX) / this.tileSize);
+    let inverseScanY = Math.floor((mouseY - this.gridMarginY) / this.tileSize);
     let tempMouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
+    let mouseOverIndex;
 
     if (inverseScanX < 0 || this.gridColumns <= inverseScanX || inverseScanY < 0 || this.dotCount <= tempMouseOverIndex) {
       mouseOverIndex = "UDF";
@@ -305,7 +376,7 @@ class DotGrid2 {
       let dotRadius = this.tileSize * (1 - this.dotPadding) / 2;
       let scanX = originX + this.gridMarginX + this.tileSize / 2 + inverseScanX * this.tileSize;
       let scanY = originY + this.gridMarginY + this.tileSize / 2 + inverseScanY * this.tileSize;
-      let centerDistance = Math.sqrt(Math.pow(mouseX2 + originX - scanX, 2) + Math.pow(mouseY2 + originY - scanY, 2));
+      let centerDistance = Math.sqrt(Math.pow(mouseX + origin - scanX, 2) + Math.pow(mouseY + originY - scanY, 2));
       if (centerDistance > dotRadius) {
         mouseOverIndex = "MISS";
       } else {
@@ -315,68 +386,8 @@ class DotGrid2 {
       mouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
     }
     console.log('mouseOverIndex', mouseOverIndex);
+    return mouseOverIndex;
   }
 }
 
-function updateUniforms(time) {
-  uniforms = {
-    u_time: time,
-    u_resolution: [glCanvas.width, glCanvas.height],
-    u_mouse: [mouseX2, mouseY2],
-    u_gridparams: [testDots2.gridColumns, testDots2.gridRows, testDots2.tileSize],
-    u_colortheme: dotColorTheme,
-  };
-}
-
-function render(time) {
-  time *= 0.001;
-  deltaTime = time - prevTime;
-  prevTime = time;
-  updateUniforms(deltaTime);
-
-  testColor2.setStateChanges(testClient.clientUpdateQueue);
-  testClient.clientUpdateQueue = [];
-  testColor2.updateAnimations(1.666);
-  testColor2.updateTexture();
-
-  twgl.resizeCanvasToDisplaySize(gl.canvas);
-  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-  gl.useProgram(programInfo.program);
-  twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
-  twgl.setUniforms(programInfo, uniforms);
-  twgl.drawBufferInfo(gl, bufferInfo);
-  requestAnimationFrame(render);
-}
-requestAnimationFrame(render);
-
-// Prepare WebGL (compile shaders, bind to canvas).
-const gl = document.getElementById("cgl").getContext("webgl", {alpha: false});
-const glCanvas = document.getElementById("cgl");
-const programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]);
-
-// Makes the shader draw onto a simple quad.
-const arrays = {
-  a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1],
-  a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
-};
-const bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
-
-var prevTime = 0;
-var deltaTime = 0;
-var mouseX2 = 0;
-var mouseY2 = 0;
-var originX = -glCanvas.width / 2.0;
-var originY = -glCanvas.height / 2.0;
-var mouseOverIndex = 0;
-var width2 = 0;
-var height2 = 0;
-var dotColorTheme = createColorTheme("client_slide");
-var testDotCount = 10000;
-var testDotPadding = 0.05;
-var testClient = new ClientClass(testDotCount);
-testClient.initClientArray();
-clientDriver();
-var testDots2 = new DotGrid2(testDotCount, glCanvas.width, glCanvas.height, testDotPadding);
-var testColor2 = new DotColor2(testDots2.gridColumns, testDots2.gridRows);
-
-testColor2.setColorArray(testClient.clientArray);
+setup();
