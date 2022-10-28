@@ -154,6 +154,7 @@ class UserSimulator {
 
   // Each number corresponds to a multiple of 1/5 which give
   // safer floats after normalization.
+  // TODO: implement limiting mechanism that dumps queue if it has grown too large.
   randomStateChange() {
     for (let i = 0; i < this.updatesPerTick; i++) {
       let randomSelect = Math.floor(Math.random() * this.userCount);
@@ -245,17 +246,21 @@ class DataTexture {
   }
 
   updateTexture() {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray)
   }
 
   updateTextureDimensions(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-    this.totalColors = tempWidth * tempHeight;
-
-    let newtexArray = new ArrayBuffer(tempWidth * tempHeight * 4 * 8);
-    new Uint8Array(newtexArray).set(new Uint8Array(this.texArray));
-    this.texArray = new Uint8Array(newtexArray, 0, tempWidth * tempHeight * 4);
+      if (this.totalColors > tempWidth * tempHeight) {
+        this.texArray = this.texArray.subarray(0, tempWidth * tempHeight * 4);
+        this.totalColors = tempWidth * tempHeight;
+      } else {
+        let tempArray = new ArrayBuffer(tempWidth * tempHeight * 4 * 8);
+        new Uint8Array(tempArray).set(new Uint8Array(this.texArray));
+        this.texArray = new Uint8Array(tempArray, 0, tempWidth * tempHeight * 4);
+      }
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   }
 
   setTexArray(initialArray) {
