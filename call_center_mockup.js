@@ -7,11 +7,12 @@ function setup() {
   initWebGL("cgl");
   let tempUserCount = 10000;
   let dotPadding = 0.05;
+  let simulationTickRate = 50;
   colorTheme = setColorTheme("clientSlide");
-  userSim = new UserSimulator(tempUserCount);
+  userSim = new UserSimulator(tempUserCount, simulationTickRate);
   gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
   texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
-  userSim.simUpdates = tempUserCount / 8;
+  userSim.updatesPerTick = tempUserCount / 8;
   canvasResized = document.querySelector("body");
   myObserver.observe(canvasResized);
 
@@ -116,28 +117,20 @@ function setColorTheme(themeSelection) {
 }
 
 class UserSimulator {
-  constructor(tempUserCount) {
+  constructor(tempUserCount, tempTickRate) {
     this.userCount = tempUserCount;
     this.userArray = [];
 
     this.probArray = [];
-    this.simUpdates = 0;
-    this.simTickRate = 0;
+    this.updatesPerTick = 0;
+    this.simTickRate = tempTickRate;
     this.stateUpdateQueue = [];
     this.initUserArray();
     this.initProbArray();
 
     setInterval(
       this.randomStateChange.bind(this),
-
-      //for (let i = 0; i < Math.floor(this.userCount / 8); i++) {
-      //  this.randomStateChange();
-      //}
-      // Clear stateUpdateQueue if frames aren't being rendered.
-      //this.randomStateChange();
-
-      //this.setStateChanges(texMain.texArray);
-      50);
+      this.simTickRate);
   }
 
   initUserArray() {
@@ -162,7 +155,7 @@ class UserSimulator {
   // Each number corresponds to a multiple of 1/5 because they give
   // a clean float after normalization.
   randomStateChange() {
-    for (let i = 0; i < this.simUpdates; i++) {
+    for (let i = 0; i < this.updatesPerTick; i++) {
       let randomSelect = Math.floor(Math.random() * this.userCount);
       let p = Math.random();
       let currentState = 0;
