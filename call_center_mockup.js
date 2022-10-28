@@ -2,29 +2,36 @@ var gridMain, gridSearch, texMain, texSearch, userSim;
 var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
 var colorTheme, mouseX, mouseY, prevTime, deltaTime;
 
-function setup() {
-  initWebGL("cgl");
-  colorTheme = setColorTheme("clientSlide");
-  let tempUserCount = 10000;
-  let dotPadding = 0.05;
-  let simulationTickRate = 50;
+function setup(tempLayout) {
+  switch (tempLayout) {
+    case "random":
+      colorTheme = setColorTheme("random");
+    default:
+      if (colorTheme == undefined) {
+        colorTheme = setColorTheme("clientSlide");
+      }
 
-  gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
-  canvasResized = document.querySelector("body");
-
-  userSim = new UserSimulator(tempUserCount, simulationTickRate);
-  texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
-  userSim.updatesPerTick = tempUserCount / 8;
-  myObserver.observe(canvasResized);
-
+      initWebGL("cgl");
+      let tempUserCount = 10000;
+      let dotPadding = 0.05;
+      let simulationTickRate = 50; // In milliseconds.
+      gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
+      canvasResized = document.querySelector("body");
+      userSim = new UserSimulator(tempUserCount, simulationTickRate);
+      texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
+      userSim.updatesPerTick = tempUserCount / 16;
+      myObserver.observe(canvasResized);
+  }
   requestAnimationFrame(render);
 }
 
-function layoutA() {
-  // colorTheme = setColorTheme("original"); 
-  userSim.setStateChanges(texMain.texArray);
-  texMain.updateAnimations(1.666);
-  texMain.updateTexture();
+function drawLayout(tempLayout) {
+  switch (tempLayout) {
+    default:
+      userSim.setStateChanges(texMain.texArray);
+      texMain.updateAnimations(2);
+      texMain.updateTexture();
+  }
 }
 
 // Main draw loop.
@@ -33,9 +40,9 @@ function render(time) {
   deltaTime = time - prevTime;
   updateUniforms(deltaTime);
   prevTime = time;
-  layoutA();
+  drawLayout(myLayout);
 
-  // May be possible to move some these out of the draw loop for better perf.
+  // May be possible to move some of these out of the draw loop for better perf.
   twgl.resizeCanvasToDisplaySize(gl.canvas);
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
   gl.useProgram(programInfo.program);
@@ -71,9 +78,7 @@ function initWebGL(canvasID) {
 // Runs on window resize:
 const myObserver = new ResizeObserver(entries => {
   entries.forEach(entry => {
-    let tempWidth = entry.contentRect.width;
-    let tempHeight = entry.contentRect.height;
-    gridMain.updateTilingMaxSpan(tempWidth, tempHeight);
+    gridMain.updateTilingMaxSpan(entry.contentRect.width, entry.contentRect.height);
     texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
 
     // Uses CSS to introduce margins so the shader doesn't warp on resize.
@@ -90,10 +95,12 @@ function setColorTheme(themeSelection) {
     colorAfterCall, colorLoggedOut, colorBackground;
 
   switch (themeSelection) {
-    case 'user':
+    case "user":
       // Values from CSS color picker go here.
       break;
-    case 'original':
+    case "random":
+      break;
+    case "original":
       colorBackground = [235, 255, 230, 255];
       colorOnCall = [149, 255, 127, 255];
       colorAvailable = [127, 255, 241, 255];
@@ -101,7 +108,7 @@ function setColorTheme(themeSelection) {
       colorAfterCall = [141, 127, 255, 255];
       colorLoggedOut = [211, 229, 207, 255];
       break;
-    case 'clientSlide':
+    case "clientSlide":
       colorBackground = [0, 0, 0, 255];
       colorOnCall = [243, 108, 82, 255];
       colorAvailable = [63, 191, 177, 255];
@@ -110,8 +117,16 @@ function setColorTheme(themeSelection) {
       colorLoggedOut = [0, 48, 70, 255];
       break;
   }
-  let tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
-    colorAvailable, colorOnCall, colorBackground);
+
+  let tempColorTheme = [];
+  if (themeSelection == "random") {
+    for (let i = 0; i < 4 * 5; i++) {
+      tempColorTheme[i] = 255 * Math.random();
+    }
+  } else {
+    tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
+      colorAvailable, colorOnCall, colorBackground);
+  }
 
   // Normalize values for the shader.
   // POTENTIAL BUG: normalization on the Javascript side may cause
@@ -120,8 +135,8 @@ function setColorTheme(themeSelection) {
     tempColorTheme[i] = tempColorTheme[i] / 255;
   }
 
-  document.body.style.backgroundColor = "rgb(" + colorBackground[0] + ","
-    + colorBackground[1] + "," + colorBackground[2] + ")";
+  document.body.style.backgroundColor = "rgb(" + tempColorTheme[20] + ","
+    + tempColorTheme[21] + "," + tempColorTheme[22] + ")";
   return tempColorTheme;
 }
 
@@ -204,7 +219,7 @@ class UserSimulator {
   // UInt8Array(0...255)->vec4(0.0...1.0)
   // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
   // = {startColor, endColor, buffColor, Timer}
-  // TODO: implement w/ single tex channel via float packing.
+  // TODO: implement w/ single channel via bit packing.
   setStateChanges(tempTexArray) {
     var j, tempState, tempTimer;
     for (let i = 0; i < this.stateUpdateQueue.length; i++) {
@@ -254,6 +269,10 @@ class DataTexture {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  blankTexture() {
+    this.texArray.fill(0);
   }
 
   updateTexture() {
@@ -314,7 +333,7 @@ class DataTexture {
     }
   }
 
-  // Test animation for showcasing framerate.
+  // Test animation for showcasing performance.
   colorWalk() {
     let timeColor = 0;
     let spanWidthScalar = this.texWidth * 4.0;
@@ -416,4 +435,5 @@ class UserGrid {
   }
 }
 
-setup();
+const myLayout = "random";
+setup(myLayout);
