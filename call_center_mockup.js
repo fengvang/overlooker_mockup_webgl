@@ -152,8 +152,8 @@ class UserSimulator {
   userLeave() {
   }
 
-  // Each number corresponds to a multiple of 1/5 because they give
-  // a clean float after normalization.
+  // Each number corresponds to a multiple of 1/5 which give
+  // safer floats after normalization.
   randomStateChange() {
     for (let i = 0; i < this.updatesPerTick; i++) {
       let randomSelect = Math.floor(Math.random() * this.userCount);
@@ -191,6 +191,7 @@ class UserSimulator {
   // Javascript Space->Shader Space:
   // UInt8Array(0...255)->vec4(0...1)
   // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a}
+  // Both Domains: {startColor, endColor, buffColor, Timer}
   // TODO: implement w/ single tex channel via float packing.
   setStateChanges(tempTexArray) {
     var j, tempState, tempTimer;
