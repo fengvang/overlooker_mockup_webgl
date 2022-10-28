@@ -68,6 +68,7 @@ const myObserver = new ResizeObserver(entries => {
     testColor2.updateTextureDimensions(testDots2.gridColumns, testDots2.gridRows);
 
     // Uses CSS to introduce margins so the shader doesn't warp on resize.
+    // Only use integer values - partial pixels cause artifacting.
     glCanvas.style.width = testDots2.gridWidth + "px";
     glCanvas.style.height = testDots2.gridHeight + "px";
   });
@@ -282,8 +283,10 @@ class DotGrid2 {
       this.gridRows = rowsW;
       this.gridColumns = columnsW;
       this.tileSize = tileSizeW;
-      this.gridWidth = columnsW * tileSizeW;
-      this.gridHeight = rowsW * tileSizeW;
+
+      // Partial pixel values cause artifacting.
+      this.gridWidth = Math.floor(columnsW * tileSizeW);
+      this.gridHeight = Math.floor(rowsW * tileSizeW);
     }
     this.gridMarginX = (canvasWidth - this.gridWidth) / 2;
     this.gridMarginY = (canvasHeight - this.gridHeight) / 2;
@@ -347,7 +350,7 @@ function render(time) {
 requestAnimationFrame(render);
 
 // Prepare WebGL (compile shaders, bind to canvas).
-const gl = document.getElementById("cgl").getContext("webgl");
+const gl = document.getElementById("cgl").getContext("webgl", {alpha: false});
 const glCanvas = document.getElementById("cgl");
 const programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]);
 
