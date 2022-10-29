@@ -350,7 +350,7 @@ class DataTexture {
         this.texArray[i + 2] = 0;                    // 0->buffColor.
         this.texArray[i + 3] = 0;                    // 0->timer.
       } else {
-        this.texArray[i + 3] = Math.min(Math.max(parseInt(0.255 * deltaTime * tempAnimSpeed + this.texArray[i + 3]), 0));
+        this.texArray[i + 3] = Math.min(Math.max(0.255 * deltaTime * tempAnimSpeed + this.texArray[i + 3], 0), 255);
       }
     }
   }
