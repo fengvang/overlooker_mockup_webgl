@@ -3,25 +3,32 @@ var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
 var colorTheme, mouseX, mouseY, prevTime, deltaTime, runTime, animSpeed;
 
 function setup(tempLayout) {
+  let tempUserCount, dotPadding, simTickRate;
   switch (tempLayout) {
     case "random":
       colorTheme = setColorTheme("random");
-      animSpeed = 5.0;
+      animSpeed = 12.0;
+      tempUserCount = 10000;
+      dotPadding = 0.05;
+      simTickRate = 25; // In milliseconds.
+      upPerTick = tempUserCount / 8;
       break;
     default:
       colorTheme = setColorTheme("clientSlide");
       animSpeed = 1.0;
+      tempUserCount = 10000;
+      dotPadding = 0.0;
+      simTickRate = 50; // In milliseconds.
+      upPerTick = tempUserCount / 8;
   }
   initWebGL("cgl");
-  let tempUserCount = 10000;
-  let dotPadding = 0.05;
-  let simulationTickRate = 25; // In milliseconds.
   gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
   canvasResized = document.querySelector("body");
-  userSim = new UserSimulator(tempUserCount, simulationTickRate);
+  userSim = new UserSimulator(tempUserCount, simTickRate);
   texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
-  userSim.updatesPerTick = tempUserCount / 8;
+  userSim.updatesPerTick = upPerTick;
   myObserver.observe(canvasResized);
+  animate();
   requestAnimationFrame(render);
 }
 
@@ -29,7 +36,7 @@ function drawLayout(tempLayout) {
   switch (tempLayout) {
     default:
       userSim.setStateChanges(texMain.texArray);
-      texMain.updateAnimations(animSpeed);
+      //texMain.updateAnimations(animSpeed);
       texMain.updateTexture();
   }
 }
@@ -52,9 +59,19 @@ function render(time) {
   requestAnimationFrame(render);
 }
 
+let run = 0;
+function animate() {
+  setInterval(function () {
+    texMain.updateAnimations(animSpeed);
+    //run++;
+    //console.log(run)
+  }, 16.39344262);
+}
+
 function updateUniforms(time) {
   uniforms = {
     u_time: time * 0.001,
+    u_timescale: animSpeed,
     u_resolution: [gridCanvas.width, gridCanvas.height],
     u_mouse: [mouseX, mouseY],
     u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.tileSize],
@@ -88,6 +105,7 @@ const myObserver = new ResizeObserver(entries => {
 });
 
 // Simple theme selection:
+//
 // The values are sent through an array uniform and used by the
 // fragment shader when evaluating the data texture.
 function setColorTheme(themeSelection) {
@@ -255,7 +273,7 @@ class UserSimulator {
           if (tempTexArray[j] != 0 && tempTexArray[j + 1] != 0) {
             tempTexArray[j + 1] = tempState;           // newColor->endColor.
             tempTexArray[j + 2] = 0;                   // 0->buffColor.
-          } 
+          }
           break;
         case 255:
           // Animation finished.
@@ -341,7 +359,7 @@ class DataTexture {
   // Javascript Space->Shader Space:
   // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
   // = {startColor, endColor, buffColor, Timer}
-  updateAnimations(tempAnimSpeed) {
+  updateAnimations(timeStretch) {
     for (let i = 0; i < this.texArray.length; i += 4) {
       // Animation has completed.
       if (this.texArray[i + 2] != 0 && this.texArray[i + 3] >= 255) {
@@ -350,7 +368,7 @@ class DataTexture {
         this.texArray[i + 2] = 0;                    // 0->buffColor.
         this.texArray[i + 3] = 0;                    // 0->timer.
       } else {
-        this.texArray[i + 3] = Math.min(Math.max(0.255 * deltaTime * tempAnimSpeed + this.texArray[i + 3], 0), 255);
+        this.texArray[i + 3] = Math.min(Math.max(1 * timeStretch + this.texArray[i + 3], 0), 255);
       }
     }
   }
