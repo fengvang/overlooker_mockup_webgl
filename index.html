@@ -53,10 +53,12 @@
     vec4 _color = vec4(0.0);
     if (_code <= 0.0) {
       if (u_colortheme[5].x + u_colortheme[5].y + u_colortheme[5].z < 1.0) {
-        _color = u_colortheme[0] + vec4(0.2, 0.2, 0.2, 0.0); // Uninit
+        _color = u_colortheme[5] + vec4(0.15); // Uninit
       } else {
-        _color = u_colortheme[0] - vec4(0.2, 0.2, 0.2, 0.0); // Uninit
+        _color = u_colortheme[5] - vec4(0.15); // Uninit
       }
+      _color.a = 1.0;
+      _color = clamp(_color, 0.0, 1.0);
     } else if (_code <= 0.2) {
       _color = u_colortheme[1]; // OnCall
     } else if (_code <= 0.4) {
