@@ -10,7 +10,6 @@ function setup(tempLayout) {
       if (colorTheme == undefined) {
         colorTheme = setColorTheme("clientSlide");
       }
-
       initWebGL("cgl");
       let tempUserCount = 10000;
       let dotPadding = 0.05;
@@ -120,7 +119,7 @@ function setColorTheme(themeSelection) {
 
   let tempColorTheme = [];
   if (themeSelection == "random") {
-    for (let i = 0; i < 5 * 4; i += 4) {
+    for (let i = 0; i < 6 * 4; i += 4) {
       tempColorTheme[i] = 255 * Math.random();
       tempColorTheme[i + 1] = 255 * Math.random();
       tempColorTheme[i + 2] = 255 * Math.random();
@@ -131,16 +130,15 @@ function setColorTheme(themeSelection) {
       colorAvailable, colorOnCall, colorBackground);
   }
 
+  let bgIndex = tempColorTheme.length;
+  document.body.style.backgroundColor = "rgb(" + tempColorTheme[bgIndex - 4] + ","
+    + tempColorTheme[bgIndex - 3] + "," + tempColorTheme[bgIndex - 2] + ")";
+
   // Normalize values for the shader.
-  // POTENTIAL BUG: normalization on the Javascript side may cause
-  // less accurate colors - needs research. 
   for (let i = 0; i < tempColorTheme.length; i++) {
     tempColorTheme[i] = tempColorTheme[i] / 255;
   }
 
-  let bgIndex = tempColorTheme.length;
-  document.body.style.backgroundColor = "rgb(" + tempColorTheme[bgIndex - 3] + ","
-    + tempColorTheme[bgIndex - 2] + "," + tempColorTheme[bgIndex - 1] + ")";
   return tempColorTheme;
 }
 
