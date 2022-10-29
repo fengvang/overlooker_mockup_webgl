@@ -120,8 +120,11 @@ function setColorTheme(themeSelection) {
 
   let tempColorTheme = [];
   if (themeSelection == "random") {
-    for (let i = 0; i < 4 * 5; i++) {
+    for (let i = 0; i < 5 * 4; i += 4) {
       tempColorTheme[i] = 255 * Math.random();
+      tempColorTheme[i + 1] = 255 * Math.random();
+      tempColorTheme[i + 2] = 255 * Math.random();
+      tempColorTheme[i + 3] = 255;
     }
   } else {
     tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
@@ -135,8 +138,9 @@ function setColorTheme(themeSelection) {
     tempColorTheme[i] = tempColorTheme[i] / 255;
   }
 
-  document.body.style.backgroundColor = "rgb(" + tempColorTheme[20] + ","
-    + tempColorTheme[21] + "," + tempColorTheme[22] + ")";
+  let bgIndex = tempColorTheme.length;
+  document.body.style.backgroundColor = "rgb(" + tempColorTheme[bgIndex - 3] + ","
+    + tempColorTheme[bgIndex - 2] + "," + tempColorTheme[bgIndex - 1] + ")";
   return tempColorTheme;
 }
 
