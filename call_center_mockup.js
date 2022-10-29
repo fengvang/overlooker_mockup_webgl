@@ -1,26 +1,27 @@
 var gridMain, gridSearch, texMain, texSearch, userSim;
 var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
-var colorTheme, mouseX, mouseY, prevTime, deltaTime;
+var colorTheme, mouseX, mouseY, prevTime, deltaTime, runTime, animSpeed;
 
 function setup(tempLayout) {
   switch (tempLayout) {
     case "random":
       colorTheme = setColorTheme("random");
+      animSpeed = 5.0;
+      break;
     default:
-      if (colorTheme == undefined) {
-        colorTheme = setColorTheme("clientSlide");
-      }
-      initWebGL("cgl");
-      let tempUserCount = 10000;
-      let dotPadding = 0.05;
-      let simulationTickRate = 50; // In milliseconds.
-      gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
-      canvasResized = document.querySelector("body");
-      userSim = new UserSimulator(tempUserCount, simulationTickRate);
-      texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
-      userSim.updatesPerTick = tempUserCount / 16;
-      myObserver.observe(canvasResized);
+      colorTheme = setColorTheme("clientSlide");
+      animSpeed = 1.0;
   }
+  initWebGL("cgl");
+  let tempUserCount = 10000;
+  let dotPadding = 0.05;
+  let simulationTickRate = 25; // In milliseconds.
+  gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
+  canvasResized = document.querySelector("body");
+  userSim = new UserSimulator(tempUserCount, simulationTickRate);
+  texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
+  userSim.updatesPerTick = tempUserCount / 8;
+  myObserver.observe(canvasResized);
   requestAnimationFrame(render);
 }
 
@@ -28,17 +29,17 @@ function drawLayout(tempLayout) {
   switch (tempLayout) {
     default:
       userSim.setStateChanges(texMain.texArray);
-      texMain.updateAnimations(2);
+      texMain.updateAnimations(animSpeed);
       texMain.updateTexture();
   }
 }
 
 // Main draw loop.
 function render(time) {
-  time *= 0.001;
-  deltaTime = time - prevTime;
+  runTime = time;
+  deltaTime = runTime - prevTime;
   updateUniforms(deltaTime);
-  prevTime = time;
+  prevTime = runTime;
   drawLayout(myLayout);
 
   // May be possible to move some of these out of the draw loop for better perf.
@@ -53,7 +54,7 @@ function render(time) {
 
 function updateUniforms(time) {
   uniforms = {
-    u_time: time,
+    u_time: time * 0.001,
     u_resolution: [gridCanvas.width, gridCanvas.height],
     u_mouse: [mouseX, mouseY],
     u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.tileSize],
@@ -172,6 +173,19 @@ class UserSimulator {
     };
   }
 
+  randProbArray() {
+    let tempArray = [];
+    for (let i = 0; i < 5; i++) {
+      tempArray.push(0.5 + 0.4 * Math.sin(2 * Math.PI * Math.random()));
+    }
+    tempArray.sort((a, b) => b - a);
+    this.probArray.loggedOut = tempArray[4];
+    this.probArray.afterCall = tempArray[3];
+    this.probArray.prevTask = tempArray[2];
+    this.probArray.avail = tempArray[1];
+    this.probArray.onCall = tempArray[0];
+  }
+
   userJoin() {
   }
 
@@ -181,14 +195,19 @@ class UserSimulator {
   // Enqueues a number of state changes each tick:
   // Javascript Space->Shader Space:
   // {0, 51, 102, 153, 204, 255}->{0.0, 0.2, 0.4, 0.6, 0.8, 1.0} 
-  //
   // TODO: pop queues that grow too large before additional pushes.
   randomStateChange() {
+    var currentState = 0;
     for (let i = 0; i < this.updatesPerTick; i++) {
-      let randomSelect = Math.floor(Math.random() * this.userCount);
-      let p = Math.random();
-      let currentState = 0;
 
+      // Noise function:
+      var u = this.userCount;
+      var o = i / u;
+      var t = performance.now();
+      var s = 2 + 1.1 * Math.sin(2 * o * t) + Math.sin(Math.PI * o * t);
+      s = Math.min(Math.max(parseInt(0.25 * s * u, 0)), u);
+
+      var p = Math.random();
       if (p < this.probArray.loggedOut) {
         currentState = 255;
       } else if (p < this.probArray.afterCall) {
@@ -200,12 +219,14 @@ class UserSimulator {
       } else if (p < this.probArray.onCall) {
         currentState = 51;
       } else {
-        currentState = 51;
+        currentState = 51 * Math.ceil(Math.random() * 4.999);
       }
-      this.pushStateChange(this.getTextureIndex(randomSelect), currentState);
+      this.pushStateChange(this.getTextureIndex(s), currentState);
     }
   }
 
+  // Basic case of mapping the user ID onto the texture:
+  // Need something that can handle persistance.
   getTextureIndex(userArrayIndex) {
     return 4 * userArrayIndex;
   }
@@ -231,8 +252,10 @@ class UserSimulator {
       switch (tempTimer) {
         case 0:
           // Animation not started.
-          tempTexArray[j + 1] = tempState;           // newColor->endColor.
-          tempTexArray[j + 2] = 0;                   // 0->buffColor.
+          if (tempTexArray[j] != 0 && tempTexArray[j + 1] != 0) {
+            tempTexArray[j + 1] = tempState;           // newColor->endColor.
+            tempTexArray[j + 2] = 0;                   // 0->buffColor.
+          } 
           break;
         case 255:
           // Animation finished.
@@ -273,21 +296,20 @@ class DataTexture {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
-  blankTexture() {
-    this.texArray.fill(0);
+  randomizeTimers() {
+    for (let i = 0; i < this.texelCount * 4; i += 4) {
+      this.texArray[i + 3] = 255 * Math.random();
+    }
   }
 
   updateTexture() {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray)
   }
 
-  // Resizes the texArray used by gl.texSubImage2D to create the texture:
+  // Resizes the texArray used by gl.texSubImage2D:
   // Sets a new end point for texArray if the texture shrinks.
   // Copies values using an ArrayBuffer if the texture grows. 
-  //
-  // TODO: copyTexSubImage2D + framebuffer would be faster + smoother; would need to move
-  // state updates to a separate texture + write a shader for it first.
-  // POTENTIAL BUG: texture shrinking may cause orphaning, needs a look at.
+  // TODO: look into copyTexSubImage2D.
   updateTextureDimensions(tempWidth, tempHeight) {
     var tempTexelCount = tempWidth * tempHeight;
     if (this.texWidth > tempWidth && this.texHeight > tempHeight) {
@@ -319,9 +341,7 @@ class DataTexture {
   // Javascript Space->Shader Space:
   // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
   // = {startColor, endColor, buffColor, Timer}
-  //
-  // TODO: move animation updates to a buffer + new fragment shader.
-  updateAnimations(timeStretch) {
+  updateAnimations(tempAnimSpeed) {
     for (let i = 0; i < this.texArray.length; i += 4) {
       // Animation has completed.
       if (this.texArray[i + 2] != 0 && this.texArray[i + 3] >= 255) {
@@ -330,7 +350,7 @@ class DataTexture {
         this.texArray[i + 2] = 0;                    // 0->buffColor.
         this.texArray[i + 3] = 0;                    // 0->timer.
       } else {
-        this.texArray[i + 3] = Math.min(this.texArray[i + 3] + timeStretch * 4.25 * 60 * Math.max(deltaTime, 0.01667), 255);
+        this.texArray[i + 3] = Math.min(Math.max(parseInt(0.255 * deltaTime * tempAnimSpeed + this.texArray[i + 3]), 0));
       }
     }
   }
