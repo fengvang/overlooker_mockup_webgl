@@ -3,45 +3,39 @@ var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
 var colorTheme, mouseX, mouseY, prevTime, runTime, animRate;
 
 function setup(tempLayout) {
-  let tempUserCount, dotPadding, simTickRate;
-  initWebGL("cgl");
+  let tempUserCount, dotPadding, simTickRate, theme;
+  gridCanvas = document.getElementById("cgl");
+  initWebGL();
 
   switch (tempLayout) {
     case "random":
-      colorTheme = setColorTheme("random");
+      theme = "random";
       animRate = 3.0;
       tempUserCount = 10000;
       dotPadding = 0.05;
       simTickRate = 25; // In milliseconds.
       upPerTick = tempUserCount / 8;
-      gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
-      canvasResized = document.querySelector("body");
-      userSim = new UserSimulator(tempUserCount, simTickRate);
-      texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
-      userSim.updatesPerTick = upPerTick;
-      break;
-    case "walk":
-
       break;
     default:
-      colorTheme = setColorTheme("clientSlide");
-      animRate = 1.0;
+      theme = "default";
+      animRate = 3.0;
       tempUserCount = 10000;
-      dotPadding = 0.0;
-      simTickRate = 50; // In milliseconds.
+      dotPadding = 0.1;
+      simTickRate = 25; // In milliseconds.
       upPerTick = tempUserCount / 8;
-      gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
-      canvasResized = document.querySelector("body");
-      userSim = new UserSimulator(tempUserCount, simTickRate);
-      texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
-      userSim.updatesPerTick = upPerTick;
+      maxStateQueue = upPerTick * 4;
   }
+  gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
+  canvasResized = document.querySelector("body");
+  userSim = new UserSimulator(tempUserCount, simTickRate, maxStateQueue);
+  texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
+  userSim.updatesPerTick = upPerTick;
+  colorTheme = setColorTheme(theme);
   myObserver.observe(canvasResized);
   requestAnimationFrame(render);
 }
 
-function initWebGL(canvasID) {
-  gridCanvas = document.getElementById(canvasID);
+function initWebGL() {
   gl = gridCanvas.getContext("webgl", { alpha: false });
   programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]); // Compile shaders.
   const arrays = {
@@ -52,12 +46,16 @@ function initWebGL(canvasID) {
 }
 
 function drawLayout(tempLayout) {
-  var deltaTime;
   switch (tempLayout) {
     case "random":
       // Varies which colors are more likey to spawn.
       if (Math.random() > 0.99) {
-        userSim.randProbArray();
+        userSim.randomizeProbability(0.5, 0.5);
+      }
+      break;
+    default:
+      if (Math.random() > 0.99) {
+        userSim.randomizeProbability(0.1, 0.08);
       }
   }
   userSim.setStateChanges(texMain.texArray);
@@ -70,7 +68,6 @@ function render(time) {
   runTime = time * 0.001;
   deltaTime = runTime - prevTime;
   prevTime = runTime;
-  updateUniformsFrequent(deltaTime);
 
   drawLayout(myLayout);
 
@@ -79,28 +76,29 @@ function render(time) {
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
   gl.useProgram(programInfo.program);
   twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
-  twgl.setUniforms(programInfo, uniformsFrequent);
+  updateUniformsFrequent(deltaTime);
+  updateUniformsInfrequent(); // Couldn't separate this out yet.
   twgl.drawBufferInfo(gl, bufferInfo);
   requestAnimationFrame(render); // Repeat loop.
 }
 
 function updateUniformsFrequent(time) {
   uniformsFrequent = {
-    u_time: time,
-    u_timescale: animRate,
-    u_resolution: [gridCanvas.width, gridCanvas.height],
-    u_mouse: [mouseX, mouseY],
-    u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.tileSize],
-    u_colortheme: colorTheme,
-  };
+  u_time: time,
+  u_mouse: [mouseX, mouseY],
+  }
+  twgl.setUniforms(programInfo, uniformsFrequent);
 }
 
 function updateUniformsInfrequent() {
-  var
-    uniformsInfrequent = {
-
-    }
-}
+  uniformsInfrequent = {
+  u_timescale: animRate,
+  u_resolution: [gridCanvas.width, gridCanvas.height],
+  u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.dotPadding],
+  u_colortheme: colorTheme,
+  }
+  twgl.setUniforms(programInfo, uniformsInfrequent);
+};
 
 // Update grid and canvas body parameters on resize:  
 const myObserver = new ResizeObserver(entries => {
@@ -109,6 +107,7 @@ const myObserver = new ResizeObserver(entries => {
     texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
     gridCanvas.style.width = gridMain.gridWidth + "px";
     gridCanvas.style.height = gridMain.gridHeight + "px";
+    updateUniformsInfrequent();
   });
 });
 
@@ -130,7 +129,7 @@ function setColorTheme(themeSelection) {
         tempColorTheme[i + 3] = 255;
       }
       break;
-    case "clientSlide":
+    default:
       colorBackground = [0, 0, 0, 255];
       colorOnCall = [243, 108, 82, 255];
       colorAvailable = [63, 191, 177, 255];
@@ -157,13 +156,14 @@ function setColorTheme(themeSelection) {
 }
 
 class UserSimulator {
-  constructor(tempUserCount, tempTickRate) {
+  constructor(tempUserCount, tempTickRate, tempMaxStateQueue) {
     this.userCount = tempUserCount;
     this.userArray = [];
     this.probArray = [];
     this.updatesPerTick = 0;
     this.simTickRate = tempTickRate;
     this.stateUpdateQueue = [];
+    this.maxStateQueue = tempMaxStateQueue;
     this.initUserArray();
     this.initProbArray();
 
@@ -185,10 +185,10 @@ class UserSimulator {
     };
   }
 
-  randProbArray() {
+  randomizeProbability(mean, deviation) {
     let tempArray = [];
     for (let i = 0; i < 5; i++) {
-      tempArray.push(0.5 + 0.5 * Math.sin(2 * Math.PI * Math.random()));
+      tempArray.push(mean + deviation * Math.sin(2 * Math.PI * Math.random()));
     }
     tempArray.sort((a, b) => b - a);
     this.probArray.loggedOut = tempArray[4];
@@ -233,6 +233,7 @@ class UserSimulator {
       } else {
         currentState = 51 * Math.ceil(Math.random() * 4.999);
       }
+
       this.pushStateChange(this.getTextureIndex(s), currentState);
     }
   }
@@ -461,5 +462,5 @@ class UserGrid {
   }
 }
 
-const myLayout = "random";
+const myLayout = "default";
 setup(myLayout);
