@@ -1,77 +1,93 @@
 var gridMain, gridSearch, texMain, texSearch, userSim;
 var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
-var colorTheme, mouseX, mouseY, prevTime, deltaTime, runTime, animSpeed;
+var colorTheme, mouseX, mouseY, prevTime, runTime, animRate;
 
 function setup(tempLayout) {
   let tempUserCount, dotPadding, simTickRate;
+  initWebGL("cgl");
+
   switch (tempLayout) {
     case "random":
       colorTheme = setColorTheme("random");
-      animSpeed = 12.0;
+      animRate = 3.0;
       tempUserCount = 10000;
       dotPadding = 0.05;
       simTickRate = 25; // In milliseconds.
       upPerTick = tempUserCount / 8;
+      gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
+      canvasResized = document.querySelector("body");
+      userSim = new UserSimulator(tempUserCount, simTickRate);
+      texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
+      userSim.updatesPerTick = upPerTick;
+      break;
+    case "walk":
+
       break;
     default:
       colorTheme = setColorTheme("clientSlide");
-      animSpeed = 1.0;
+      animRate = 1.0;
       tempUserCount = 10000;
       dotPadding = 0.0;
       simTickRate = 50; // In milliseconds.
       upPerTick = tempUserCount / 8;
+      gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
+      canvasResized = document.querySelector("body");
+      userSim = new UserSimulator(tempUserCount, simTickRate);
+      texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
+      userSim.updatesPerTick = upPerTick;
   }
-  initWebGL("cgl");
-  gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
-  canvasResized = document.querySelector("body");
-  userSim = new UserSimulator(tempUserCount, simTickRate);
-  texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
-  userSim.updatesPerTick = upPerTick;
   myObserver.observe(canvasResized);
-  animate();
   requestAnimationFrame(render);
 }
 
-function drawLayout(tempLayout) {
-  switch (tempLayout) {
-    default:
-      userSim.setStateChanges(texMain.texArray);
-      //texMain.updateAnimations(animSpeed);
-      texMain.updateTexture();
-  }
+function initWebGL(canvasID) {
+  gridCanvas = document.getElementById(canvasID);
+  gl = gridCanvas.getContext("webgl", { alpha: false });
+  programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]); // Compile shaders.
+  const arrays = {
+    a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1], // Simple quad.
+    a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
+  };
+  bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
 }
 
-// Main draw loop.
+function drawLayout(tempLayout) {
+  var deltaTime;
+  switch (tempLayout) {
+    case "random":
+      // Varies which colors are more likey to spawn.
+      if (Math.random() > 0.99) {
+        userSim.randProbArray();
+      }
+  }
+  userSim.setStateChanges(texMain.texArray);
+  texMain.updateTexture();
+  texMain.updateAnimations(animRate);
+}
+
+// Main draw loop:
 function render(time) {
-  runTime = time;
+  runTime = time * 0.001;
   deltaTime = runTime - prevTime;
-  updateUniforms(deltaTime);
   prevTime = runTime;
+  updateUniformsFrequent(deltaTime);
+
   drawLayout(myLayout);
 
-  // May be possible to move some of these out of the draw loop for better perf.
+  // WebGL stuff
   twgl.resizeCanvasToDisplaySize(gl.canvas);
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
   gl.useProgram(programInfo.program);
   twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
-  twgl.setUniforms(programInfo, uniforms);
+  twgl.setUniforms(programInfo, uniformsFrequent);
   twgl.drawBufferInfo(gl, bufferInfo);
-  requestAnimationFrame(render);
+  requestAnimationFrame(render); // Repeat loop.
 }
 
-let run = 0;
-function animate() {
-  setInterval(function () {
-    texMain.updateAnimations(animSpeed);
-    //run++;
-    //console.log(run)
-  }, 16.39344262);
-}
-
-function updateUniforms(time) {
-  uniforms = {
-    u_time: time * 0.001,
-    u_timescale: animSpeed,
+function updateUniformsFrequent(time) {
+  uniformsFrequent = {
+    u_time: time,
+    u_timescale: animRate,
     u_resolution: [gridCanvas.width, gridCanvas.height],
     u_mouse: [mouseX, mouseY],
     u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.tileSize],
@@ -79,52 +95,40 @@ function updateUniforms(time) {
   };
 }
 
-function initWebGL(canvasID) {
-  gridCanvas = document.getElementById(canvasID);
-  gl = gridCanvas.getContext("webgl", { alpha: false });
-  programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]); // Compile shaders.
+function updateUniformsInfrequent() {
+  var
+    uniformsInfrequent = {
 
-  // Makes the shader draw onto a simple quad.
-  const arrays = {
-    a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1],
-    a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
-  };
-  bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
+    }
 }
 
-// Runs on window resize:
+// Update grid and canvas body parameters on resize:  
 const myObserver = new ResizeObserver(entries => {
   entries.forEach(entry => {
     gridMain.updateTilingMaxSpan(entry.contentRect.width, entry.contentRect.height);
     texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
-
-    // Uses CSS to introduce margins so the shader doesn't warp on resize.
     gridCanvas.style.width = gridMain.gridWidth + "px";
     gridCanvas.style.height = gridMain.gridHeight + "px";
   });
 });
 
-// Simple theme selection:
-//
-// The values are sent through an array uniform and used by the
-// fragment shader when evaluating the data texture.
+// Theme selection:
 function setColorTheme(themeSelection) {
   let colorOnCall, colorAvailable, colorPreviewingTask,
-    colorAfterCall, colorLoggedOut, colorBackground;
+    colorAfterCall, colorLoggedOut, colorBackground, bgIndex;
+  let tempColorTheme = [];
 
   switch (themeSelection) {
     case "user":
       // Values from CSS color picker go here.
       break;
     case "random":
-      break;
-    case "original":
-      colorBackground = [235, 255, 230, 255];
-      colorOnCall = [149, 255, 127, 255];
-      colorAvailable = [127, 255, 241, 255];
-      colorPreviewingTask = [255, 240, 127, 255];
-      colorAfterCall = [141, 127, 255, 255];
-      colorLoggedOut = [211, 229, 207, 255];
+      for (let i = 0; i < 6 * 4; i += 4) {
+        tempColorTheme[i] = 255 * Math.random();
+        tempColorTheme[i + 1] = 255 * Math.random();
+        tempColorTheme[i + 2] = 255 * Math.random();
+        tempColorTheme[i + 3] = 255;
+      }
       break;
     case "clientSlide":
       colorBackground = [0, 0, 0, 255];
@@ -136,20 +140,12 @@ function setColorTheme(themeSelection) {
       break;
   }
 
-  let tempColorTheme = [];
-  if (themeSelection == "random") {
-    for (let i = 0; i < 6 * 4; i += 4) {
-      tempColorTheme[i] = 255 * Math.random();
-      tempColorTheme[i + 1] = 255 * Math.random();
-      tempColorTheme[i + 2] = 255 * Math.random();
-      tempColorTheme[i + 3] = 255;
-    }
-  } else {
+  if (themeSelection != "random") {
     tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
       colorAvailable, colorOnCall, colorBackground);
   }
 
-  let bgIndex = tempColorTheme.length;
+  bgIndex = tempColorTheme.length;
   document.body.style.backgroundColor = "rgb(" + tempColorTheme[bgIndex - 4] + ","
     + tempColorTheme[bgIndex - 3] + "," + tempColorTheme[bgIndex - 2] + ")";
 
@@ -157,7 +153,6 @@ function setColorTheme(themeSelection) {
   for (let i = 0; i < tempColorTheme.length; i++) {
     tempColorTheme[i] = tempColorTheme[i] / 255;
   }
-
   return tempColorTheme;
 }
 
@@ -165,7 +160,6 @@ class UserSimulator {
   constructor(tempUserCount, tempTickRate) {
     this.userCount = tempUserCount;
     this.userArray = [];
-
     this.probArray = [];
     this.updatesPerTick = 0;
     this.simTickRate = tempTickRate;
@@ -194,7 +188,7 @@ class UserSimulator {
   randProbArray() {
     let tempArray = [];
     for (let i = 0; i < 5; i++) {
-      tempArray.push(0.5 + 0.4 * Math.sin(2 * Math.PI * Math.random()));
+      tempArray.push(0.5 + 0.5 * Math.sin(2 * Math.PI * Math.random()));
     }
     tempArray.sort((a, b) => b - a);
     this.probArray.loggedOut = tempArray[4];
@@ -243,7 +237,7 @@ class UserSimulator {
     }
   }
 
-  // Basic case of mapping the user ID onto the texture:
+  // Maps user ID/index onto the texture:
   // Need something that can handle persistance.
   getTextureIndex(userArrayIndex) {
     return 4 * userArrayIndex;
@@ -316,7 +310,7 @@ class DataTexture {
 
   randomizeTimers() {
     for (let i = 0; i < this.texelCount * 4; i += 4) {
-      this.texArray[i + 3] = 255 * Math.random();
+      this.texArray[i + 3] = Math.floor(255 * Math.random());
     }
   }
 
@@ -346,20 +340,11 @@ class DataTexture {
     this.texelCount = tempTexelCount;
   }
 
-  setTexArray(initialArray) {
-    for (let i = 0; i < this.texArray.length; i += 4) {
-      this.texArray[i] = 0;
-      this.texArray[i + 1] = initialArray[i];
-      this.texArray[i + 2] = 0;
-      this.texArray[i + 3] = 0;
-    }
-  }
-
   // Increments the timer and pops buffColor:
   // Javascript Space->Shader Space:
   // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
   // = {startColor, endColor, buffColor, Timer}
-  updateAnimations(timeStretch) {
+  updateAnimations(tempAnimRate) {
     for (let i = 0; i < this.texArray.length; i += 4) {
       // Animation has completed.
       if (this.texArray[i + 2] != 0 && this.texArray[i + 3] >= 255) {
@@ -368,12 +353,13 @@ class DataTexture {
         this.texArray[i + 2] = 0;                    // 0->buffColor.
         this.texArray[i + 3] = 0;                    // 0->timer.
       } else {
-        this.texArray[i + 3] = Math.min(Math.max(1 * timeStretch + this.texArray[i + 3], 0), 255);
+        this.texArray[i + 3] = 255 * Math.min(Math.max(deltaTime * animRate
+          + this.texArray[i + 3] / 255, 0), 1.0);
       }
     }
   }
 
-  // Test animation for showcasing performance.
+  // Test animation for showcasing performance:
   colorWalk() {
     let timeColor = 0;
     let spanWidthScalar = this.texWidth * 4.0;
