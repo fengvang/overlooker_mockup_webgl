@@ -13,15 +13,16 @@ function setup(tempLayout) {
       animRate = 3.0;
       tempUserCount = 10000;
       dotPadding = 0.05;
-      simTickRate = 25; // In milliseconds.
+      simTickRate = 25; // In milliseconds, low accuracy.
       upPerTick = tempUserCount / 8;
+      maxStateQueue = upPerTick * 4;
       break;
     default:
       theme = "default";
       animRate = 3.0;
       tempUserCount = 10000;
       dotPadding = 0.1;
-      simTickRate = 25; // In milliseconds.
+      simTickRate = 25;
       upPerTick = tempUserCount / 8;
       maxStateQueue = upPerTick * 4;
   }
@@ -46,16 +47,23 @@ function initWebGL() {
 }
 
 function drawLayout(tempLayout) {
+  var mean, deviation, p;
   switch (tempLayout) {
     case "random":
+      p = 0.99;
       // Varies which colors are more likey to spawn.
-      if (Math.random() > 0.99) {
-        userSim.randomizeProbability(0.5, 0.5);
+      if (Math.random() > p) {
+        mean = 0.5;
+        deviation = 0.5;
+        userSim.randomizeProbability(mean, deviation);
       }
       break;
     default:
-      if (Math.random() > 0.99) {
-        userSim.randomizeProbability(0.1, 0.08);
+      p = 0.99;
+      if (Math.random() > p) {
+        mean = 0.1;
+        deviation = 0.2;
+        userSim.randomizeProbability(mean, deviation);
       }
   }
   userSim.setStateChanges(texMain.texArray);
@@ -84,18 +92,18 @@ function render(time) {
 
 function updateUniformsFrequent(time) {
   uniformsFrequent = {
-  u_time: time,
-  u_mouse: [mouseX, mouseY],
+    u_time: time,
+    u_mouse: [mouseX, mouseY],
   }
   twgl.setUniforms(programInfo, uniformsFrequent);
 }
 
 function updateUniformsInfrequent() {
   uniformsInfrequent = {
-  u_timescale: animRate,
-  u_resolution: [gridCanvas.width, gridCanvas.height],
-  u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.dotPadding],
-  u_colortheme: colorTheme,
+    u_timescale: animRate,
+    u_resolution: [gridCanvas.width, gridCanvas.height],
+    u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.dotPadding],
+    u_colortheme: colorTheme,
   }
   twgl.setUniforms(programInfo, uniformsInfrequent);
 };
@@ -164,17 +172,26 @@ class UserSimulator {
     this.simTickRate = tempTickRate;
     this.stateUpdateQueue = [];
     this.maxStateQueue = tempMaxStateQueue;
+
+    setInterval(() => {
+      this.randomStateChange();
+      if (this.stateUpdateQueue.length >= this.maxStateQueue) {
+        this.overwriteRedundantStates();
+      }
+    }, this.simTickRate)
+
     this.initUserArray();
     this.initProbArray();
-
-    setInterval(
-      this.randomStateChange.bind(this),
-      this.simTickRate);
   }
 
   initUserArray() {
     for (let i = 0; i < this.userCount; i++) {
-      this.userArray.push(51 * Math.ceil(4.9 * Math.random()));
+      this.userArray.push({
+        userID: (Math.random() + 1).toString(36).substring(7),
+        currentState: 51 * Math.ceil(4.9 * Math.random()),
+        connectionTime: Math.floor(Date.now() * 0.001), // In epoch time.
+        connectionStatus: "online",
+      });
     }
   }
 
@@ -185,10 +202,17 @@ class UserSimulator {
     };
   }
 
+  userJoin() {
+  }
+
+  userLeave() {
+  }
+
   randomizeProbability(mean, deviation) {
     let tempArray = [];
     for (let i = 0; i < 5; i++) {
-      tempArray.push(mean + deviation * Math.sin(2 * Math.PI * Math.random()));
+      Math.min(Math.max(tempArray.push(mean
+        + deviation * Math.sin(2 * Math.PI * Math.random())), 0), 1);
     }
     tempArray.sort((a, b) => b - a);
     this.probArray.loggedOut = tempArray[4];
@@ -198,43 +222,36 @@ class UserSimulator {
     this.probArray.onCall = tempArray[0];
   }
 
-  userJoin() {
-  }
-
-  userLeave() {
-  }
-
   // Enqueues a number of state changes each tick:
   // Javascript Space->Shader Space:
   // {0, 51, 102, 153, 204, 255}->{0.0, 0.2, 0.4, 0.6, 0.8, 1.0} 
-  // TODO: pop queues that grow too large before additional pushes.
   randomStateChange() {
-    var currentState = 0;
     for (let i = 0; i < this.updatesPerTick; i++) {
-
+      var tempState;
       // Noise function:
-      var u = this.userCount;
+      var u = this.userCount - 1;
       var o = i / u;
       var t = performance.now();
       var s = 2 + 1.1 * Math.sin(2 * o * t) + Math.sin(Math.PI * o * t);
-      s = Math.min(Math.max(parseInt(0.25 * s * u, 0)), u);
+      s = Math.floor(Math.min(Math.max(0.25 * s * u, 0), u));
 
       var p = Math.random();
       if (p < this.probArray.loggedOut) {
-        currentState = 255;
+        tempState = 255;
       } else if (p < this.probArray.afterCall) {
-        currentState = 204;
+        tempState = 204;
       } else if (p < this.probArray.prevTask) {
-        currentState = 153;
+        tempState = 153;
       } else if (p < this.probArray.avail) {
-        currentState = 102;
+        tempState = 102;
       } else if (p < this.probArray.onCall) {
-        currentState = 51;
+        tempState = 51;
       } else {
-        currentState = 51 * Math.ceil(Math.random() * 4.999);
+        tempState = 51 * Math.ceil(Math.random() * 4.999);
       }
 
-      this.pushStateChange(this.getTextureIndex(s), currentState);
+      this.userArray[s].currentState = tempState;
+      this.pushStateChange(this.getTextureIndex(s), tempState);
     }
   }
 
@@ -283,6 +300,12 @@ class UserSimulator {
       }
     }
     this.stateUpdateQueue = [];
+  }
+
+  // No time right now. The idea is to compare states in the queue with
+  // the same textureIndex and discard everything but the most recent.
+  overwriteRedundantStates() {
+    this.stateUpdateQueue = []; // Prevent memory leak while minimized.
   }
 }
 
