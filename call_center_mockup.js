@@ -36,7 +36,7 @@ function setupLayout(tempLayout) {
   userSim.updatesPerTick = upPerTick;
 
   function initWebGL() {
-    gl = gridCanvas.getContext("webgl", { alpha: false });
+    gl = gridCanvas.getContext("webgl", { alpha: false, antialias: false });
     programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]); // Compile shaders.
     const arrays = {
       a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1], // Simple quad.
@@ -90,7 +90,6 @@ function setupLayout(tempLayout) {
   requestAnimationFrame(render);
 }
 
-
 function updateUniformsFrequent(time) {
   uniformsFrequent = {
     u_time: time,
@@ -123,7 +122,7 @@ const myObserver = new ResizeObserver(entries => {
 // Theme selection:
 function setColorTheme(themeSelection) {
   let colorOnCall, colorAvailable, colorPreviewingTask,
-    colorAfterCall, colorLoggedOut, colorBackground, bgIndex;
+    colorAfterCall, colorLoggedOut, colorBackground, backGroundIndex;
   let tempColorTheme = [];
 
   switch (themeSelection) {
@@ -153,9 +152,9 @@ function setColorTheme(themeSelection) {
       colorAvailable, colorOnCall, colorBackground);
   }
 
-  bgIndex = tempColorTheme.length;
-  document.body.style.backgroundColor = "rgb(" + tempColorTheme[bgIndex - 4] + ","
-    + tempColorTheme[bgIndex - 3] + "," + tempColorTheme[bgIndex - 2] + ")";
+  backGroundIndex = tempColorTheme.length - 1;
+  document.body.style.backgroundColor = "rgb(" + tempColorTheme[backGroundIndex - 3] + ","
+    + tempColorTheme[backGroundIndex - 2] + "," + tempColorTheme[backGroundIndex - 1] + ")";
 
   // Normalize values for the shader.
   for (let i = 0; i < tempColorTheme.length; i++) {
@@ -230,7 +229,7 @@ class UserSimulator {
     var normalized = VisualAux.sineNoise(0, 1, 1, offset, offset);
     var userIndex = Math.floor(normalized * (this.userCount - 1));
 
-    // Use persistent probability array to select their state:
+    // Use persistent probability array to select the state:
     var tempIntState = VisualAux.processProbabilityArray(this.probArray);
     var tempKey = Object.keys(this.stateCodes)[tempIntState];
     var tempState = this.stateCodes[tempKey];
@@ -310,21 +309,20 @@ class VisualAux {
   }
 
   static processProbabilityArray(tempArray) {
-    let rollIterations;
-    for (let i = 0; i < tempArray.length; i++) {
-      if (Math.random() < tempArray[i]) {
-        rollIterations = i;
+    var rollIterations = 0;
+    var counter;
+    for (counter = 0; counter < tempArray.length; counter++) {
+      if (Math.random() < tempArray[counter]) {
+        rollIterations = counter;
         break;
       }
     }
-    if (rollIterations == null) {
-      rollIterations = Math.floor(tempArray.length * Math.random());
+    if (counter > 0 && rollIterations == 0) {
+      rollIterations = Math.floor(tempArray.length * Math.random() + 0.5);
     }
-
     return rollIterations;
   }
 }
-
 
 class DataTexture {
   constructor(tempWidth, tempHeight) {
