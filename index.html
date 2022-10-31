@@ -29,46 +29,50 @@
   uniform vec2 u_resolution;
   uniform vec2 u_mouse;
   uniform float u_time;
+  uniform float u_timescale;
   uniform vec3 u_gridparams;
   uniform vec4 u_colortheme[6];
   uniform sampler2D u_texture;
 
   varying vec2 v_texCoord;
   float aa_factor = u_gridparams.y * 1.5 / u_resolution.y;
+  float radius = u_gridparams.z / 2.0;
 
+  // Distance formula approach to drawing a circle:
   float circle_dist(in vec2 _uv) { 
     float d = length(_uv.xy * 2.0 - vec2(1.0));
     float t = 1.0 - smoothstep(0.5 + aa_factor, 0.5 - aa_factor, d * 0.51);
     return 1.0 - t;
   }
 
+  // Dot product approach to drawing a circle:
   float circle_dot(in vec2 _uv) {
     vec2 centered = _uv.xy * vec2(2.0) - vec2(1.0);
-    float d = 0.5 * dot(centered, centered);
+    float d = 0.5 * dot(centered, centered) + radius;
     return smoothstep(0.5 + aa_factor, 0.5 - aa_factor, d);
   }
 
-  // TODO: move to a texture shader to minimize branching penalty.
+  // Have to use constants to get data out of uniform arrays in fragment shader.
   vec4 colorCheck(in float _code) {
     vec4 _color = vec4(0.0);
     if (_code <= 0.0) {
       if (u_colortheme[5].x + u_colortheme[5].y + u_colortheme[5].z < 1.0) {
         _color = u_colortheme[5] + vec4(0.15); // Uninit
       } else {
-        _color = u_colortheme[5] - vec4(0.15); // Uninit
+        _color = u_colortheme[5] - vec4(0.1); // Uninit
       }
       _color.a = 1.0;
       _color = clamp(_color, 0.0, 1.0);
     } else if (_code <= 0.2) {
-      _color = u_colortheme[1]; // OnCall
+      _color = u_colortheme[0]; // OnCall
     } else if (_code <= 0.4) {
-      _color = u_colortheme[2]; // Available
+      _color = u_colortheme[1]; // Available
     } else if (_code <= 0.6) {
-      _color = u_colortheme[3]; // PreviewingTask
+      _color = u_colortheme[2]; // PreviewingTask
     } else if (_code <= 0.8) {
-      _color = u_colortheme[4]; // AfterCall
+      _color = u_colortheme[3]; // AfterCall
     } else {
-      _color = u_colortheme[5]; // LoggedOut
+      _color = u_colortheme[4]; // LoggedOut
     }
     return _color;
   }
@@ -78,12 +82,13 @@
     vec2 uv = v_texCoord.xy;
     vec4 start_color = colorCheck(tex_color.x);
     vec4 end_color = colorCheck(tex_color.y);
-    vec4 shaded = mix(start_color, end_color, tex_color.w);
-    
-    // Split screen into divisions.
-    uv.xy = fract(u_gridparams.xy * uv.xy);
+    float t = tex_color.w;
+    float s = clamp(t, 0.0, 1.0);
 
-    gl_FragColor = mix(u_colortheme[5], shaded, circle_dot(uv));
+    vec4 shaded = vec4(mix(start_color.xyz, end_color.xyz, s), 1.0);
+    uv.xy = fract(u_gridparams.xy * uv.xy); // Split screen into divisions.
+
+    gl_FragColor = vec4(mix(u_colortheme[5].xyz, shaded.xyz, circle_dot(uv)), 1.0);
   }
       </script>
   </canvas>
