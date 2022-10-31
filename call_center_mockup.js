@@ -1,23 +1,15 @@
-var gridMain, gridSearch, texMain, texSearch, userSim;
-var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
-var colorTheme, mouseX, mouseY, prevTime, runTime, animRate;
+var gl, gridCanvas, canvasResized;
 
 function setupLayout(tempLayout) {
+  var gridMain, gridSearch, texMain, texSearch, userSim;
+  var programInfo, bufferInfo;
+  var colorTheme, mouseX, mouseY, prevTime, runTime, animRate;
   let tempUserCount, dotPadding, simTickRate, theme;
   gridCanvas = document.getElementById("cgl");
   initWebGL();
 
   // Choose from layouts:
   switch (tempLayout) {
-    case "random":
-      theme = "random";
-      animRate = 3.0;
-      tempUserCount = 10000;
-      dotPadding = 0.05;
-      simTickRate = 25; // In milliseconds, low accuracy.
-      upPerTick = tempUserCount / 8;
-      maxStateQueue = upPerTick * 4;
-      break;
     default:
       theme = "default";
       animRate = 3.0;
@@ -30,10 +22,38 @@ function setupLayout(tempLayout) {
 
   // Init variables:
   gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
-  canvasResized = document.querySelector("body");
   userSim = new UserSimulator(tempUserCount, maxStateQueue);
   texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
   userSim.updatesPerTick = upPerTick;
+  colorTheme = setColorTheme(theme);
+
+  var promise = new Promise(function (resolve, reject) {
+    currentUsers = userSim.userCount;
+    currentTiles = gridMain.dotCount;
+    if (currentUsers == currentTiles) {
+      resolve();
+    } else {
+      reject();
+    }
+  });
+
+  promise.
+    then(function () {
+      console.log('Success, You are a GEEK');
+    }).
+    catch(function () {
+      console.log('Some error has occurred');
+    });
+
+  // State update clock:
+  clientTimer = setInterval(function () {
+    for (let i = 0; i < upPerTick; i++) {
+      userSim.setRandomState();
+    }
+    if (userSim.stateUpdateQueue.length >= maxStateQueue) {
+      userSim.overwriteRedundantStates();
+    }
+  }, simTickRate);
 
   function initWebGL() {
     gl = gridCanvas.getContext("webgl", { alpha: false, antialias: false });
@@ -46,78 +66,63 @@ function setupLayout(tempLayout) {
   }
 
   // Main draw loop:
+  requestAnimationFrame(render);
   function render(time) {
     runTime = time * 0.001;
     deltaTime = runTime - prevTime;
     prevTime = runTime;
 
-    drawLayout(myLayout);
+    function drawLayout(tempLayout) {
+      switch (tempLayout) {
+        default:
+        // Layout specific draw loop code goes here.
+      }
+      userSim.setStateChanges(texMain.texArray);
+      texMain.updateTexture();
+      texMain.updateAnimations(animRate);
+    }; drawLayout(myLayout);
 
-    // WebGL stuff
     twgl.resizeCanvasToDisplaySize(gl.canvas);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.useProgram(programInfo.program);
     twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
-    updateUniformsFrequent(deltaTime);
-    updateUniformsInfrequent(); // Couldn't separate this out yet.
+
+    function updateUniformsFrequent(time) {
+      uniformsFrequent = {
+        u_time: time,
+        u_mouse: [mouseX, mouseY],
+      }
+      twgl.setUniforms(programInfo, uniformsFrequent);
+    }; updateUniformsFrequent(deltaTime);
+
+    function updateUniformsInfrequent() {
+      uniformsInfrequent = {
+        u_timescale: animRate,
+        u_resolution: [gridCanvas.width, gridCanvas.height],
+        u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.dotPadding],
+        u_colortheme: colorTheme,
+      }
+      twgl.setUniforms(programInfo, uniformsInfrequent);
+    }; updateUniformsInfrequent(); // Couldn't separate this out yet.
+
     twgl.drawBufferInfo(gl, bufferInfo);
     requestAnimationFrame(render); // Repeat loop.
   }
 
-  function drawLayout(tempLayout) {
-    switch (tempLayout) {
-      case "random":
-        break;
-      default:
-    }
-    userSim.setStateChanges(texMain.texArray);
-    texMain.updateTexture();
-    texMain.updateAnimations(animRate);
-  }
+  // Update grid and canvas body parameters on resize:  
+  const myObserver = new ResizeObserver(entries => {
+    entries.forEach(entry => {
+      gridMain.updateTilingMaxSpan(entry.contentRect.width, entry.contentRect.height);
 
-  // State update clock:
-  clientTimer = setInterval(function () {
-    for (let i = 0; i < upPerTick; i++) {
-      userSim.setRandomState();
-    }
-    if (userSim.stateUpdateQueue.length >= maxStateQueue) {
-      userSim.overwriteRedundantStates();
-    }
-  }, simTickRate);
-
-  colorTheme = setColorTheme(theme);
-  myObserver.observe(canvasResized);
-  requestAnimationFrame(render);
-}
-
-function updateUniformsFrequent(time) {
-  uniformsFrequent = {
-    u_time: time,
-    u_mouse: [mouseX, mouseY],
-  }
-  twgl.setUniforms(programInfo, uniformsFrequent);
-}
-
-function updateUniformsInfrequent() {
-  uniformsInfrequent = {
-    u_timescale: animRate,
-    u_resolution: [gridCanvas.width, gridCanvas.height],
-    u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.dotPadding],
-    u_colortheme: colorTheme,
-  }
-  twgl.setUniforms(programInfo, uniformsInfrequent);
-};
-
-// Update grid and canvas body parameters on resize:  
-const myObserver = new ResizeObserver(entries => {
-  entries.forEach(entry => {
-    gridMain.updateTilingMaxSpan(entry.contentRect.width, entry.contentRect.height);
-
-    texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
-    gridCanvas.style.width = gridMain.gridWidth + "px";
-    gridCanvas.style.height = gridMain.gridHeight + "px";
+      texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
+      gridCanvas.style.width = gridMain.gridWidth + "px";
+      gridCanvas.style.height = gridMain.gridHeight + "px";
+    });
   });
-});
+  canvasResized = document.querySelector("body");
+  myObserver.observe(canvasResized);
+}
+
 
 // Theme selection:
 function setColorTheme(themeSelection) {
@@ -360,7 +365,6 @@ class DataTexture {
   // Resizes the texArray used by gl.texSubImage2D:
   // Sets a new end point for texArray if the texture shrinks.
   // Copies values using an ArrayBuffer if the texture grows. 
-  // TODO: look into copyTexSubImage2D.
   updateTextureDimensions(tempWidth, tempHeight) {
     var tempTexelCount = tempWidth * tempHeight;
     if (this.texWidth > tempWidth && this.texHeight > tempHeight) {
@@ -392,24 +396,10 @@ class DataTexture {
         this.texArray[i + 2] = 0;                    // 0->buffColor.
         this.texArray[i + 3] = 0;                    // 0->timer.
       } else {
-        this.texArray[i + 3] = 255 * Math.min(Math.max(deltaTime * animRate
+        this.texArray[i + 3] = 255 * Math.min(Math.max(deltaTime * tempAnimRate
           + this.texArray[i + 3] / 255, 0), 1.0);
       }
     }
-  }
-
-  // Test animation for showcasing performance:
-  colorWalk() {
-    let timeColor = 0;
-    let spanWidthScalar = this.texWidth * 4.0;
-    for (let i = 0; i < this.texArray.length; i += 4) {
-      timeColor = performance.now() / 5;
-      this.texArray[i + 0] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.0) / spanWidthScalar));
-      this.texArray[i + 1] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.9) / spanWidthScalar));
-      this.texArray[i + 2] = 127 + 64 * (1 - Math.cos(3.1415926 * 2 * (i + timeColor * 1.6) / spanWidthScalar));
-      this.texArray[i + 3] = 255;
-    }
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray)
   }
 }
 
