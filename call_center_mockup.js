@@ -2,11 +2,12 @@ var gridMain, gridSearch, texMain, texSearch, userSim;
 var gl, gridCanvas, canvasResized, programInfo, bufferInfo;
 var colorTheme, mouseX, mouseY, prevTime, runTime, animRate;
 
-function setup(tempLayout) {
+function setupLayout(tempLayout) {
   let tempUserCount, dotPadding, simTickRate, theme;
   gridCanvas = document.getElementById("cgl");
   initWebGL();
 
+  // Choose from layouts:
   switch (tempLayout) {
     case "random":
       theme = "random";
@@ -26,11 +27,24 @@ function setup(tempLayout) {
       upPerTick = tempUserCount / 8;
       maxStateQueue = upPerTick * 4;
   }
+
+  // Init variables:
   gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
   canvasResized = document.querySelector("body");
-  userSim = new UserSimulator(tempUserCount, simTickRate, maxStateQueue);
+  userSim = new UserSimulator(tempUserCount, maxStateQueue);
   texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
   userSim.updatesPerTick = upPerTick;
+
+  // State update timer:
+  clientTimer = setInterval(function () {
+    for (let i = 0; i < upPerTick; i++) {
+      userSim.randomStateChange();
+    }
+    if (userSim.stateUpdateQueue.length >= maxStateQueue) {
+      userSim.overwriteRedundantStates();
+    }
+  }, simTickRate);
+
   colorTheme = setColorTheme(theme);
   myObserver.observe(canvasResized);
   requestAnimationFrame(render);
@@ -50,21 +64,15 @@ function drawLayout(tempLayout) {
   var mean, deviation, p;
   switch (tempLayout) {
     case "random":
-      p = 0.99;
+      p = 0.1;
       // Varies which colors are more likey to spawn.
-      if (Math.random() > p) {
+      if (Math.random() < p) {
         mean = 0.5;
         deviation = 0.5;
         userSim.randomizeProbability(mean, deviation);
       }
       break;
     default:
-      p = 0.99;
-      if (Math.random() > p) {
-        mean = 0.1;
-        deviation = 0.2;
-        userSim.randomizeProbability(mean, deviation);
-      }
   }
   userSim.setStateChanges(texMain.texArray);
   texMain.updateTexture();
@@ -112,10 +120,10 @@ function updateUniformsInfrequent() {
 const myObserver = new ResizeObserver(entries => {
   entries.forEach(entry => {
     gridMain.updateTilingMaxSpan(entry.contentRect.width, entry.contentRect.height);
+
     texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
     gridCanvas.style.width = gridMain.gridWidth + "px";
     gridCanvas.style.height = gridMain.gridHeight + "px";
-    updateUniformsInfrequent();
   });
 });
 
@@ -164,99 +172,99 @@ function setColorTheme(themeSelection) {
 }
 
 class UserSimulator {
-  constructor(tempUserCount, tempTickRate, tempMaxStateQueue) {
+  constructor(tempUserCount, tempMaxStateQueue) {
     this.userCount = tempUserCount;
     this.userArray = [];
-    this.probArray = [];
+    this.probArray = [0.2, 0.3, 0.35, 0.40, 0.45];
     this.updatesPerTick = 0;
-    this.simTickRate = tempTickRate;
     this.stateUpdateQueue = [];
     this.maxStateQueue = tempMaxStateQueue;
+    this.stateChangeCounter = 0;
 
-    setInterval(() => {
-      this.randomStateChange();
-      if (this.stateUpdateQueue.length >= this.maxStateQueue) {
-        this.overwriteRedundantStates();
-      }
-    }, this.simTickRate)
+    // Javascript Space->Shader Space:
+    // {0, 51, 102, 153, 204, 255}->{0.0, 0.2, 0.4, 0.6, 0.8, 1.0} 
+    this.stateCodes = {
+      loggedOut: 255,
+      afterCall: 204,
+      previewingTask: 153,
+      available: 102,
+      onCall: 51,
+      neverInitialized: 0,
+    };
+
+    this.eventCodes = {
+
+    }
 
     this.initUserArray();
-    this.initProbArray();
   }
 
   initUserArray() {
     for (let i = 0; i < this.userCount; i++) {
       this.userArray.push({
         userID: (Math.random() + 1).toString(36).substring(7),
-        currentState: 51 * Math.ceil(4.9 * Math.random()),
+        currentState: this.stateCodes.neverInitialized,
         connectionTime: Math.floor(Date.now() * 0.001), // In epoch time.
         connectionStatus: "online",
       });
     }
   }
 
-  initProbArray() {
-    this.probArray = {
-      loggedOut: 0.01, afterCall: 0.2, prevTask: 0.35,
-      avail: 0.65, onCall: 0.7,
-    };
-  }
-
   userJoin() {
+    this.userArray.push({
+      userID: (Math.random() + 1).toString(36).substring(7),
+      currentState: this.stateCodes.neverInitialized,
+      connectionTime: Math.floor(Date.now() * 0.001), // In epoch time.
+      connectionStatus: "online",
+    });
+
+    // Do this last for array index safety.
+    this.userCount += 1;
   }
 
   userLeave() {
+    tempIndex = Math.floor(Math.random() * this.userCount);
+    this.userArray[tempIndex].assign({
+      connectionStatus: "offline",
+      currentState: 255, // Logged out
+    });
   }
 
   randomizeProbability(mean, deviation) {
     let tempArray = [];
+    let totalProps = Object.keys(this.eventCodes).length + Object.keys(this.stateCodes).length;
     for (let i = 0; i < 5; i++) {
-      Math.min(Math.max(tempArray.push(mean
-        + deviation * Math.sin(2 * Math.PI * Math.random())), 0), 1);
+      tempArray.push(Math.min(Math.max((mean + deviation * Math.sin(2 * Math.PI * Math.random())), 0), 1));
     }
-    tempArray.sort((a, b) => b - a);
-    this.probArray.loggedOut = tempArray[4];
-    this.probArray.afterCall = tempArray[3];
-    this.probArray.prevTask = tempArray[2];
-    this.probArray.avail = tempArray[1];
-    this.probArray.onCall = tempArray[0];
+    this.probArray = tempArray.sort((a, b) => a + b);
   }
 
   // Enqueues a number of state changes each tick:
-  // Javascript Space->Shader Space:
-  // {0, 51, 102, 153, 204, 255}->{0.0, 0.2, 0.4, 0.6, 0.8, 1.0} 
   randomStateChange() {
-    for (let i = 0; i < this.updatesPerTick; i++) {
-      var tempState;
-      // Noise function:
-      var u = this.userCount - 1;
-      var o = i / u;
-      var t = performance.now();
-      var s = 2 + 1.1 * Math.sin(2 * o * t) + Math.sin(Math.PI * o * t);
-      s = Math.floor(Math.min(Math.max(0.25 * s * u, 0), u));
+    // Index noise function:
+    this.stateChangeCounter++;
+    var u = this.userCount - 1;
+    var o = this.stateChangeCounter / u;
+    var t = performance.now();
+    var s = VisualAux.sineNoise(0, 1, 1, o, o);
+    s = Math.floor(s * u);
 
-      var p = Math.random();
-      if (p < this.probArray.loggedOut) {
-        tempState = 255;
-      } else if (p < this.probArray.afterCall) {
-        tempState = 204;
-      } else if (p < this.probArray.prevTask) {
-        tempState = 153;
-      } else if (p < this.probArray.avail) {
-        tempState = 102;
-      } else if (p < this.probArray.onCall) {
-        tempState = 51;
-      } else {
-        tempState = 51 * Math.ceil(Math.random() * 4.999);
+    var tempState;
+    for (let i = 0; i < this.probArray.length; i++) {
+      if (Math.random() < this.probArray[i]) {
+        let tempKey = Object.keys(this.stateCodes)[i];
+        tempState = this.stateCodes[tempKey];
+        if (tempState == this.stateCodes.neverInitialized || tempState == null) {
+          tempState = 51 * Math.floor(Math.random() * 4.99);
+        }
+        break;
       }
-
-      this.userArray[s].currentState = tempState;
-      this.pushStateChange(this.getTextureIndex(s), tempState);
     }
+    this.userArray[s].currentState = tempState;
+    this.pushStateChange(this.getTextureIndex(s), tempState);
   }
 
   // Maps user ID/index onto the texture:
-  // Need something that can handle persistance.
   getTextureIndex(userArrayIndex) {
     return 4 * userArrayIndex;
   }
@@ -306,6 +314,18 @@ class UserSimulator {
   // the same textureIndex and discard everything but the most recent.
   overwriteRedundantStates() {
     this.stateUpdateQueue = []; // Prevent memory leak while minimized.
+  }
+}
+
+class Randomizer {
+
+}
+
+class VisualAux {
+  static sineNoise(lowerBound, upperBound, timeScale, inputA, inputB) {
+    let noiseTimer = performance.now() * timeScale;
+    return Math.min(Math.max(0.5 + 0.255 * (Math.sin(2 * inputA * noiseTimer)
+      + Math.sin(Math.PI * inputB * noiseTimer)), lowerBound), upperBound);
   }
 }
 
@@ -402,7 +422,6 @@ class UserGrid {
   constructor(tempDotCount, canvasWidth, canvasHeight, tempPadding) {
     this.dotCount = tempDotCount;
     this.dotPadding = tempPadding;
-    this.dotColorDisabled = 0;
     this.gridWidth = 0;
     this.gridHeight = 0;
     this.gridMarginX = 0;
@@ -413,77 +432,106 @@ class UserGrid {
     this.updateTilingMaxSpan(canvasWidth, canvasHeight);
   }
 
-  // Main tiling algorithm:
-  // Picks between spanning height or spanning width; whichever covers more area.
-  // BUG: Low tilecounts cause wasted space.
-  updateTilingMaxSpan(canvasWidth, canvasHeight) {
-    let windowRatio = canvasWidth / canvasHeight;
-    let cellWidth = Math.sqrt(this.dotCount * windowRatio);
-    let cellHeight = this.dotCount / cellWidth;
-
-    let rowsH = Math.ceil(cellHeight);
-    let columnsH = Math.ceil(this.dotCount / rowsH);
-    while (rowsH * windowRatio < columnsH) {
-      rowsH++;
-      columnsH = Math.ceil(this.dotCount / rowsH);
+  addTiles(tempTileCount) {
+    let gridCapacity = this.gridWidth * this.gridHeight;
+    if (tempTileCount > gridCapacity) {
+      this.dotCount = tempTileCount;
+      this.updateTilingMaxSpan();
+      let newGridParams = {
+        dotPadding: this.dotPadding,
+        gridWidth: this.gridWidth,
+      }
     }
-    let tileSizeH = canvasHeight / rowsH;
-
-    let columnsW = Math.ceil(cellWidth);
-    let rowsW = Math.ceil(this.dotCount / columnsW);
-    while (columnsW < rowsW * windowRatio) {
-      columnsW++;
-      rowsW = Math.ceil(this.dotCount / columnsW);
-    }
-    let tileSizeW = canvasWidth / columnsW;
-
-    // If the tiles best span height, update grid parameters to span height else...
-    if (tileSizeH < tileSizeW) {
-      this.gridRows = rowsH;
-      this.gridColumns = columnsH;
-      this.tileSize = tileSizeH;
-      this.gridWidth = columnsH * tileSizeH;
-      this.gridHeight = rowsH * tileSizeH;
-    } else {
-      this.gridRows = rowsW;
-      this.gridColumns = columnsW;
-      this.tileSize = tileSizeW;
-
-      // Partial pixel values cause artifacting.
-      this.gridWidth = Math.floor(columnsW * tileSizeW);
-      this.gridHeight = Math.floor(rowsW * tileSizeW);
-    }
-    this.gridMarginX = (canvasWidth - this.gridWidth) / 2;
-    this.gridMarginY = (canvasHeight - this.gridHeight) / 2;
   }
 
-  // Finds the index of the dot underneath the mouse:
-  // Treats dots as circular if there are less than 1000.
-  getMouseOverIndex() {
-    let inverseScanX = Math.floor((mouseX - this.gridMarginX) / this.tileSize);
-    let inverseScanY = Math.floor((mouseY - this.gridMarginY) / this.tileSize);
-    let tempMouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
-    let mouseOverIndex;
+  removeTiles(tempTileCount) {
+    let lowerBoundCapacity = this.gridWith * (this.gridHeight - 1);
+    if (tempTileCount <= lowerBoundCapacity) {
+      this.dotCount = tempTileCount;
+      this.updateTilingMaxSpan();
+    }
+  }
 
-    if (inverseScanX < 0 || this.gridColumns <= inverseScanX || inverseScanY < 0 || this.dotCount <= tempMouseOverIndex) {
-      mouseOverIndex = "UDF";
-    } else if (this.dotCount < 1000) {
-      let dotRadius = this.tileSize * (1 - this.dotPadding) / 2;
-      let scanX = originX + this.gridMarginX + this.tileSize / 2 + inverseScanX * this.tileSize;
-      let scanY = originY + this.gridMarginY + this.tileSize / 2 + inverseScanY * this.tileSize;
-      let centerDistance = Math.sqrt(Math.pow(mouseX + origin - scanX, 2) + Math.pow(mouseY + originY - scanY, 2));
-      if (centerDistance > dotRadius) {
-        mouseOverIndex = "MISS";
-      } else {
-        mouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
-      }
+  getParams() {
+    let gridParameters = {
+      rows: this.gridRows, columns: this.gridColumns, size: this.tileSize,
+      activeTiles: this.dotCount, padding: this.dotPadding, width: this.gridWidth,
+      height: this.gridHeight, marginX: this.gridMarginX, marginY: this.gridMarginY,
+    }
+    return gridParameters;
+  }
+
+// Main tiling algorithm:
+// Picks between spanning height or spanning width; whichever covers more area.
+// BUG: Low tilecounts cause wasted space.
+updateTilingMaxSpan(canvasWidth, canvasHeight) {
+  let windowRatio = canvasWidth / canvasHeight;
+  let cellWidth = Math.sqrt(this.dotCount * windowRatio);
+  let cellHeight = this.dotCount / cellWidth;
+
+  let rowsH = Math.ceil(cellHeight);
+  let columnsH = Math.ceil(this.dotCount / rowsH);
+  while (rowsH * windowRatio < columnsH) {
+    rowsH++;
+    columnsH = Math.ceil(this.dotCount / rowsH);
+  }
+  let tileSizeH = canvasHeight / rowsH;
+
+  let columnsW = Math.ceil(cellWidth);
+  let rowsW = Math.ceil(this.dotCount / columnsW);
+  while (columnsW < rowsW * windowRatio) {
+    columnsW++;
+    rowsW = Math.ceil(this.dotCount / columnsW);
+  }
+  let tileSizeW = canvasWidth / columnsW;
+
+  // If the tiles best span height, update grid parameters to span height else...
+  if (tileSizeH < tileSizeW) {
+    this.gridRows = rowsH;
+    this.gridColumns = columnsH;
+    this.tileSize = tileSizeH;
+    this.gridWidth = columnsH * tileSizeH;
+    this.gridHeight = rowsH * tileSizeH;
+  } else {
+    this.gridRows = rowsW;
+    this.gridColumns = columnsW;
+    this.tileSize = tileSizeW;
+
+    // Partial pixel values cause artifacting.
+    this.gridWidth = Math.floor(columnsW * tileSizeW);
+    this.gridHeight = Math.floor(rowsW * tileSizeW);
+  }
+  this.gridMarginX = (canvasWidth - this.gridWidth) / 2;
+  this.gridMarginY = (canvasHeight - this.gridHeight) / 2;
+}
+
+// Finds the index of the dot underneath the mouse:
+// Treats dots as circular if there are less than 1000.
+getMouseOverIndex() {
+  let inverseScanX = Math.floor((mouseX - this.gridMarginX) / this.tileSize);
+  let inverseScanY = Math.floor((mouseY - this.gridMarginY) / this.tileSize);
+  let tempMouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
+  let mouseOverIndex;
+
+  if (inverseScanX < 0 || this.gridColumns <= inverseScanX || inverseScanY < 0 || this.dotCount <= tempMouseOverIndex) {
+    mouseOverIndex = "UDF";
+  } else if (this.dotCount < 1000) {
+    let dotRadius = this.tileSize * (1 - this.dotPadding) / 2;
+    let scanX = originX + this.gridMarginX + this.tileSize / 2 + inverseScanX * this.tileSize;
+    let scanY = originY + this.gridMarginY + this.tileSize / 2 + inverseScanY * this.tileSize;
+    let centerDistance = Math.sqrt(Math.pow(mouseX + origin - scanX, 2) + Math.pow(mouseY + originY - scanY, 2));
+    if (centerDistance > dotRadius) {
+      mouseOverIndex = "MISS";
     } else {
       mouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
     }
-    console.log('mouseOverIndex', mouseOverIndex);
-    return mouseOverIndex;
+  } else {
+    mouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
   }
+  console.log('mouseOverIndex', mouseOverIndex);
+  return mouseOverIndex;
+}
 }
 
 const myLayout = "default";
-setup(myLayout);
+setupLayout(myLayout);
