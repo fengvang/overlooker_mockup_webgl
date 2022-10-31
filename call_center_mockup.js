@@ -138,12 +138,12 @@ function setColorTheme(themeSelection) {
       }
       break;
     default:
-      colorBackground = [0, 0, 0, 255];
+      colorBackground = [11, 10, 17, 255]; // Normally [0, 0, 0, 255]
       colorOnCall = [243, 108, 82, 255];
       colorAvailable = [63, 191, 177, 255];
       colorPreviewingTask = [0, 110, 184, 255];
       colorAfterCall = [255, 205, 52, 255];
-      colorLoggedOut = [0, 48, 70, 255];
+      colorLoggedOut = [11, 10, 17, 255]; // Normally [0, 48, 70, 255]
       break;
   }
 
