@@ -42,24 +42,28 @@ function setupLayout(tempLayout) {
       var tempState = Object.values(userSim.stateCodes)[tempStateIndex]; // Use random index to get a stateCode.
       if (tempState != null) {
         userSim.setRandomState(tempState);
+      } else {
+        tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
       }
 
       // Predict if a user joins.
       var joinChance = 0.001;
-      var leaveChance = 0.0005;
+      //var leaveChance = 0.0005;
       if (Math.random() < joinChance) {
         userSim.userJoin();
-      } else if (Math.random() < leaveChance) {
-        let userIndex = Math.floor(VisualAux.sineNoise(0, userSim.userArray.length - 1, 1, 1, 1));
-        userSim.userLeave(userIndex);
       }
+      // else if (Math.random() < leaveChance) {
+      //let userIndex = Math.floor(VisualAux.sineNoise(0, userSim.userArray.length - 1, 1, 1, 1));
+      //userSim.userLeave(userIndex);
+      // }
+
     }
     // The draw loop doesn't run while minimized, so use the clock instead.
     if (userSim.stateUpdateQueue.length >= maxStateQueue) {
       userSim.setStateChanges(texMain);
     }
 
-    if (userSim.userCount != gridMain.dotCount) {
+    if (userSim.userCount > gridMain.dotCount) {
       gridMain.addTiles(userSim.userCount);
       texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
     }
