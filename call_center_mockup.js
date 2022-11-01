@@ -1,6 +1,6 @@
 var gl, gridCanvas, canvasResized;
 var gridMain, gridSearch, texMain, texSearch, userSim;
-var programInfo, bufferInfo;
+var programInfo, programInfo2, bufferInfo;
 var colorTheme, mouseX, mouseY, prevTime, runTime, animRate;
 
 function setupLayout(tempLayout) {
@@ -31,7 +31,6 @@ function setupLayout(tempLayout) {
   // Used to have some control over distribution of events like dot color and join/leave.
   // TODO: come up with something that isn't so messy.
   userStateProbArray = VisualAux.createProbabilityArray(0.2, 0.05, Object.keys(this.userSim.stateCodes).length - 1);
-  //userLeaveProbArray = VisualAux.createProbabilityArray(0.01, 0.005, this.userSim.userCount - 1);
 
   // State update clock:
   clientTimer = setInterval(function () {
@@ -39,39 +38,34 @@ function setupLayout(tempLayout) {
 
       // Set individual user state: 
       var tempStateIndex = VisualAux.processProbabilityArray(userStateProbArray);
-      var tempState = Object.values(userSim.stateCodes)[tempStateIndex]; // Use random index to get a stateCode.
-      if (tempState != null) {
-        userSim.setRandomState(tempState);
-      } else {
+      var stateCodes = userSim.stateCodes;
+      var tempState = Object.values(stateCodes)[tempStateIndex]; // Use random index to get a stateCode.
+      if (tempState == null) {
         tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
+      } else {
+        userSim.setRandomState(tempState);
       }
 
       // Predict if a user joins.
-      var joinChance = 0.001;
-      //var leaveChance = 0.0005;
+      var joinChance = 0.000;
+      //var joinChance = userSim.userCount;
+      var leaveChance = 0.0;
       if (Math.random() < joinChance) {
         userSim.userJoin();
+      } else if (Math.random() < leaveChance) {
+        let userIndex = Math.floor(VisualAux.sineNoise(0, userSim.userArray.length - 1, 1, 1, 1));
+        userSim.userLeave(userIndex);
       }
-      // else if (Math.random() < leaveChance) {
-      //let userIndex = Math.floor(VisualAux.sineNoise(0, userSim.userArray.length - 1, 1, 1, 1));
-      //userSim.userLeave(userIndex);
-      // }
-
     }
-    // The draw loop doesn't run while minimized, so use the clock instead.
     if (userSim.stateUpdateQueue.length >= maxStateQueue) {
-      userSim.setStateChanges(texMain);
-    }
-
-    if (userSim.userCount > gridMain.dotCount) {
-      gridMain.addTiles(userSim.userCount);
-      texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
+      userSim.setStateChanges(texMain); // The draw loop doesn't run while minimized, so use the clock instead.
     }
   }, simTickRate);
 
   function initWebGL() {
     gl = gridCanvas.getContext("webgl", { alpha: false, antialias: false });
-    programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]); // Compile shaders.
+    programInfo = twgl.createProgramInfo(gl, ["vertex", "fragment_screen"]); // Compile shaders.
+    programInfo2 = twgl.createProgramInfo(gl, ["vertex", "fragment_texture"]);
     const arrays = {
       a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1], // Simple quad.
       a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
@@ -86,38 +80,48 @@ function setupLayout(tempLayout) {
     deltaTime = runTime - prevTime;
     prevTime = runTime;
 
-    function drawLayout(tempLayout) {
-      switch (tempLayout) {
-        default:
-        // Layout specific draw loop code goes here.
-      }
-      userSim.setStateChanges(texMain.texArray);
-      texMain.updateTexture();
-      texMain.updateAnimations(animRate);
-    }; drawLayout(myLayout);
+    let uniformsFrequent = {
+      u_time: time,
+      u_mouse: [mouseX, mouseY],
+    };
 
+    let uniformsInfrequent = {
+      u_timescale: animRate,
+      u_resolution: [gridCanvas.width, gridCanvas.height],
+      u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.dotPadding],
+      u_colortheme: colorTheme,
+      u_texture_data: texMain.dataTexture,
+      u_texture_color: texMain.colorTexture,
+    };
+
+    // Check to see if new dots have forced a resize:
+    if (userSim.userCount > gridMain.dotCount) {
+      gridMain.addTiles(userSim.userCount);
+      texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
+    }
+    userSim.setStateChanges(texMain.texArray);
+    texMain.updateTexture();
+    texMain.updateAnimations(animRate);
+    const processBuffer = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, processBuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texMain.colorTexture, 0);
+
+    // Prep for drawing to screen:
+    twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
     twgl.resizeCanvasToDisplaySize(gl.canvas);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-    gl.useProgram(programInfo.program);
-    twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
 
-    function updateUniformsFrequent(time) {
-      uniformsFrequent = {
-        u_time: time,
-        u_mouse: [mouseX, mouseY],
-      }; twgl.setUniforms(programInfo, uniformsFrequent);
-    }; updateUniformsFrequent(deltaTime);
-
-    function updateUniformsInfrequent() {
-      uniformsInfrequent = {
-        u_timescale: animRate,
-        u_resolution: [gridCanvas.width, gridCanvas.height],
-        u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.dotPadding],
-        u_colortheme: colorTheme,
-      }; twgl.setUniforms(programInfo, uniformsInfrequent);
-    }; updateUniformsInfrequent(); // Couldn't separate this out yet.
-
+    // Use the data texture fragment shader to use a buffer to process per texel and save results inside the color texture.
+    gl.useProgram(programInfo2.program);
+    twgl.setUniforms(programInfo2, uniformsFrequent, uniformsInfrequent);
     twgl.drawBufferInfo(gl, bufferInfo);
+
+    // Use the color texture fragment shader to print all of the dots.
+    gl.useProgram(programInfo.program);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    twgl.setUniforms(programInfo, uniformsFrequent, uniformsInfrequent);
+    twgl.drawBufferInfo(gl, bufferInfo);
+
     requestAnimationFrame(render); // Repeat loop.
   }
 
@@ -322,9 +326,6 @@ class VisualAux {
         break;
       }
     }
-    //if (counter > 0 && rollIterations == 0) {
-    //  rollIterations = Math.floor(tempArray.length * Math.random() + 0.5);
-    //}
     return rollIterations;
   }
 }
@@ -335,14 +336,31 @@ class DataTexture {
     this.texHeight = tempHeight;
     this.texelCount = this.texWidth * this.texHeight;
     this.texArray = new Uint8Array(this.texelCount * 4);
-    this.initTexture();
+    this.initColorTexture();
+    this.initDataTexture();
   }
 
-  initTexture() {
+  initDataTexture() {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     this.dataTexture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.dataTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+    // Don't generate mip maps.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  initColorTexture() {
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    this.colorTexture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.colorTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 
     // Don't generate mip maps.
@@ -359,7 +377,8 @@ class DataTexture {
   }
 
   updateTexture() {
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray)
+    gl.activeTexture(gl.TEXTURE1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray);
   }
 
   // Resizes the texArray used by gl.texSubImage2D:
@@ -378,9 +397,20 @@ class DataTexture {
       this.texArray = new Uint8Array(tempArray, 0, tempTexelCount * 4);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     }
+
+    // DELETE ME
+    gl.activeTexture(gl.TEXTURE0);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
     this.texelCount = tempTexelCount;
+  }
+
+  updateTextureColumnExpansion() {
+
   }
 
   // Increments the timer and pops buffColor:
@@ -462,20 +492,19 @@ class UserGrid {
     let tileSizeW = canvasWidth / columnsW;
 
     // If the tiles best span height, update grid parameters to span height else...
-    if (tileSizeH < tileSizeW) {
+    if (tileSizeW < tileSizeH) {
       this.gridRows = rowsH;
       this.gridColumns = columnsH;
       this.tileSize = tileSizeH;
+
       this.gridWidth = columnsH * tileSizeH;
       this.gridHeight = rowsH * tileSizeH;
     } else {
       this.gridRows = rowsW;
       this.gridColumns = columnsW;
       this.tileSize = tileSizeW;
-
-      // Partial pixel values cause artifacting.
-      this.gridWidth = Math.floor(columnsW * tileSizeW);
-      this.gridHeight = Math.floor(rowsW * tileSizeW);
+      this.gridWidth = columnsW * tileSizeW;
+      this.gridHeight = rowsW * tileSizeW;
     }
     this.gridMarginX = (canvasWidth - this.gridWidth) / 2;
     this.gridMarginY = (canvasHeight - this.gridHeight) / 2;
