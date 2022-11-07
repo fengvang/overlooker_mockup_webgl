@@ -5,25 +5,41 @@
   <title>Overlooker</title>
   <link href="style.css" rel="stylesheet" type="text/css" />
   <meta charset="utf-8">
-  <script src="libraries/twgl.min.js"></script>
+  <script src="libraries/twgl-full.min.js"></script>
 </head>
 
 <body>
   <canvas id="cgl">
-    <script id="vertex" type="notjs">
+    <script id="vertex_texture" type="notjs">
+    precision mediump float;
+    
+    attribute vec2 a_position;
+    attribute vec2 a_texcoord;
+    
+    uniform mat3 u_matrix;
+    varying vec2 v_texcoord;
+      
+    void main() {
+      gl_Position = vec4(a_position, 1.0, 1.0);
+      v_texcoord = a_position.xy * 0.5 + 0.5;
+    }
+          </script>
+    <script id="vertex_screen" type="notjs">
   precision mediump float;
 
-  attribute vec4 a_position;
+  attribute vec2 a_position;
   attribute vec2 a_texcoord;
 
-  varying vec2 v_texCoord;
+  uniform mat3 u_matrix;
+  varying vec2 v_texcoord;
+  varying vec2 v_texcoord_data;
   
   void main() {
-    v_texCoord = a_texcoord;
-    gl_Position = a_position;
+     gl_Position = vec4(u_matrix * vec3(a_position, 1.0), 1.0);
+     v_texcoord = 0.5 * a_position.xy + 0.5;
   }
       </script>
-  <script id="fragment_texture" type="notjs">
+    <script id="fragment_texture" type="notjs">
   precision mediump float;
 
   uniform vec2 u_resolution;
@@ -34,7 +50,7 @@
   uniform vec4 u_colortheme[6];
   uniform sampler2D u_texture_data;
 
-  varying vec2 v_texCoord;
+  varying vec2 v_texcoord;
 
   vec4 colorCheck(in float _code) {
     vec4 _color = vec4(0.0);
@@ -61,7 +77,7 @@
   }
 
   void main() {
-    vec4 tex_color = texture2D(u_texture_data, v_texCoord * (u_resolution.xy / u_gridparams.xy));
+    vec4 tex_color = texture2D(u_texture_data, v_texcoord);
     vec4 start_color = colorCheck(tex_color.x);
     vec4 end_color = colorCheck(tex_color.y);
     float t = tex_color.w;
@@ -69,8 +85,6 @@
 
     vec4 shaded = vec4(mix(start_color.xyz, end_color.xyz, s), 1.0);
     gl_FragColor = shaded;
-    //gl_FragColor = vec4(tex_color.xyz, 1.0);
-    //gl_FragColor = vec4(0.8 + tex_color.g, 0.6 - tex_color.b, 0.6 + tex_color.r, 1.0);
   }
 
   </script>
@@ -84,7 +98,8 @@
   uniform vec3 u_gridparams;
   uniform vec4 u_colortheme[6];
   uniform sampler2D u_texture_color;
-  varying vec2 v_texCoord;
+  uniform sampler2D u_texture_data;
+  varying vec2 v_texcoord;
 
   float aa_factor = u_gridparams.y * 1.5 / u_resolution.y;
   float radius = u_gridparams.z / 2.0;
@@ -104,13 +119,14 @@
   }
 
   void main() {
-    vec4 tex_color = texture2D(u_texture_color, v_texCoord);
-    vec2 uv = v_texCoord.xy;
+    vec2 pixelCoords = gl_FragCoord.xy + vec2(0.5);
+    vec2 mapped = pixelCoords / u_gridparams.xy;
+    vec4 tex_color = texture2D(u_texture_color, v_texcoord);
+
+    vec2 uv = v_texcoord.xy;
     uv.xy = fract(u_gridparams.xy * uv.xy); // Split screen into divisions.
 
     gl_FragColor = vec4(mix(u_colortheme[5].xyz, tex_color.xyz, circle_dot(uv)), 1.0);
-    //gl_FragColor = tex_color;
-    //gl_FragColor = vec4(0.5, 0.5, 0.0, 1.0);
   }
  
       </script>
