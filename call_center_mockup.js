@@ -1,141 +1,187 @@
-var gl, gridCanvas, canvasResized;
-var gridMain, gridSearch, texMain, texSearch, userSim;
-var programInfo, programInfo2, bufferInfo;
-var colorTheme, mouseX, mouseY, prevTime, runTime, animRate;
+var mouseX, mouseY;
 
-function setupLayout(tempLayout) {
+// Initialize WebGL:
+const gridCanvas = document.getElementById("cgl");
+const gl = gridCanvas.getContext("webgl", { cull: false, depth: false, antialias: false });
+const programInfoA = twgl.createProgramInfo(gl, ["vertex_screen", "fragment_screen"]); // Compile shaders.
+const programInfoB = twgl.createProgramInfo(gl, ["vertex_texture", "fragment_texture"]);
 
-  let tempUserCount, dotPadding, simTickRate, theme;
-  gridCanvas = document.getElementById("cgl");
-  initWebGL();
+if (gl == null || programInfoA == null || programInfoB == null) {
+  throw new Error("WebGL context creation or shader compilation has failed. Your device or browser must be able"
+    + " to use WebGL 1.0 to continue.");
+}
+const glArrays = {
+  a_position: [-1.0, -1.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0,
+  -1.0, 1.0, 0.0, 1.0, -1.0, 0.0, 1.0, 1.0, 0.0,
+  ],
 
-  // Choose from layouts:
+  a_texcoord: [0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
+    0.0, 1.0, 1.0, 0.0, 1.0, 1.0,
+  ],
+};
+
+const uniforms = {
+  u_time: 0, u_mouse: 0, u_timescale: 0,
+  u_resolution: 0, u_gridparams: 0, u_colortheme: 0,
+  u_texture_data: 0, u_texture_color: 0, u_matrix: 0,
+};
+const bufferInfo = twgl.createBufferInfoFromArrays(gl, glArrays);
+twgl.setBuffersAndAttributes(gl, programInfoA, bufferInfo);
+twgl.setBuffersAndAttributes(gl, programInfoB, bufferInfo);
+
+function setup() {
+  "use strict";
+  let tempLayout, layout, animRate, prevTime, runTime, deltaTime;
+  tempLayout = "default"; // Change to test layouts.
+
   switch (tempLayout) {
-    default:
-      theme = "default";
+    case "growing":
+      let startCount = 10;
+      let endCount = 100000;
+      let growthRate = 0.001;
       animRate = 3.0;
-      tempUserCount = 10000;
-      dotPadding = 0.1;
-      simTickRate = 25;
-      upPerTick = tempUserCount / 8;
-      maxStateQueue = upPerTick * 4;
+      uniforms.u_colortheme = setColorTheme("random");
+      layout = new LayoutUsersJoin(startCount, endCount, growthRate);
+      break;
+    default:
+      animRate = 3.0;
+      uniforms.u_colortheme = setColorTheme("random");
+      layout = new LayoutUsersStatic;
   }
 
-  // Init variables:
-  gridMain = new UserGrid(tempUserCount, gridCanvas.width, gridCanvas.height, dotPadding);
-  userSim = new UserSimulator(tempUserCount, maxStateQueue);
-  texMain = new DataTexture(gridMain.gridColumns, gridMain.gridRows);
-  userSim.updatesPerTick = upPerTick;
-  colorTheme = setColorTheme(theme);
-
-  // Used to have some control over distribution of events like dot color and join/leave.
-  // TODO: come up with something that isn't so messy.
-  userStateProbArray = VisualAux.createProbabilityArray(0.2, 0.05, Object.keys(this.userSim.stateCodes).length - 1);
-
-  // State update clock:
-  clientTimer = setInterval(function () {
-    for (let i = 0; i < upPerTick; i++) {
-
-      // Set individual user state: 
-      var tempStateIndex = VisualAux.processProbabilityArray(userStateProbArray);
-      var stateCodes = userSim.stateCodes;
-      var tempState = Object.values(stateCodes)[tempStateIndex]; // Use random index to get a stateCode.
-      if (tempState == null) {
-        tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
-      } else {
-        userSim.setRandomState(tempState);
-      }
-
-      // Predict if a user joins.
-      var joinChance = 0.000;
-      //var joinChance = userSim.userCount;
-      var leaveChance = 0.0;
-      if (Math.random() < joinChance) {
-        userSim.userJoin();
-      } else if (Math.random() < leaveChance) {
-        let userIndex = Math.floor(VisualAux.sineNoise(0, userSim.userArray.length - 1, 1, 1, 1));
-        userSim.userLeave(userIndex);
-      }
-    }
-    if (userSim.stateUpdateQueue.length >= maxStateQueue) {
-      userSim.setStateChanges(texMain); // The draw loop doesn't run while minimized, so use the clock instead.
-    }
-  }, simTickRate);
-
-  function initWebGL() {
-    gl = gridCanvas.getContext("webgl", { alpha: false, antialias: false });
-    programInfo = twgl.createProgramInfo(gl, ["vertex", "fragment_screen"]); // Compile shaders.
-    programInfo2 = twgl.createProgramInfo(gl, ["vertex", "fragment_texture"]);
-    const arrays = {
-      a_position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 1], // Simple quad.
-      a_texcoord: [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
-    };
-    bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
-  }
-
-  // Main draw loop:
-  requestAnimationFrame(render);
+  // Start draw loop:
   function render(time) {
     runTime = time * 0.001;
     deltaTime = runTime - prevTime;
     prevTime = runTime;
 
-    let uniformsFrequent = {
-      u_time: time,
-      u_mouse: [mouseX, mouseY],
-    };
-
-    let uniformsInfrequent = {
-      u_timescale: animRate,
-      u_resolution: [gridCanvas.width, gridCanvas.height],
-      u_gridparams: [gridMain.gridColumns, gridMain.gridRows, gridMain.dotPadding],
-      u_colortheme: colorTheme,
-      u_texture_data: texMain.dataTexture,
-      u_texture_color: texMain.colorTexture,
-    };
-
-    // Check to see if new dots have forced a resize:
-    if (userSim.userCount > gridMain.dotCount) {
-      gridMain.addTiles(userSim.userCount);
-      texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
+    // Resize if needed.
+    if (twgl.resizeCanvasToDisplaySize(gl.canvas)) {
+      layout.resized();
     }
-    userSim.setStateChanges(texMain.texArray);
-    texMain.updateTexture();
-    texMain.updateAnimations(animRate);
-    const processBuffer = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, processBuffer);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texMain.colorTexture, 0);
+    layout.updateUniforms();
 
-    // Prep for drawing to screen:
-    twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
-    twgl.resizeCanvasToDisplaySize(gl.canvas);
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-
-    // Use the data texture fragment shader to use a buffer to process per texel and save results inside the color texture.
-    gl.useProgram(programInfo2.program);
-    twgl.setUniforms(programInfo2, uniformsFrequent, uniformsInfrequent);
-    twgl.drawBufferInfo(gl, bufferInfo);
-
-    // Use the color texture fragment shader to print all of the dots.
-    gl.useProgram(programInfo.program);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    twgl.setUniforms(programInfo, uniformsFrequent, uniformsInfrequent);
-    twgl.drawBufferInfo(gl, bufferInfo);
-
+    layout.display(deltaTime, animRate);
     requestAnimationFrame(render); // Repeat loop.
   }
+  layout.updateUniforms();
+  requestAnimationFrame(render); // Start loop.
+}
 
-  // Update grid and canvas body parameters on resize:  
-  const myObserver = new ResizeObserver(entries => {
-    entries.forEach(entry => {
-      gridMain.updateTilingMaxSpan(entry.contentRect.width, entry.contentRect.height);
-      texMain.updateTextureDimensions(gridMain.gridColumns, gridMain.gridRows);
-      gridCanvas.style.width = gridMain.gridWidth + "px";
-      gridCanvas.style.height = gridMain.gridHeight + "px";
-    });
-  });
-  canvasResized = document.querySelector("body");
-  myObserver.observe(canvasResized);
+class LayoutSimGrid {
+  constructor() {
+    let tempUserCount = 10000;
+    let dotPadding = 0.1;
+    let maxStateQueue = tempUserCount * 4;
+    this.gridMain = new UserGrid(tempUserCount, gl.canvas.width, gl.canvas.height, dotPadding, "max");
+    this.userSim = new UserSimulator(tempUserCount, maxStateQueue);
+    this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
+    this.texMain.randomizeTimers();
+  }
+
+  updateUniforms() {
+    uniforms.u_resolution = [gl.canvas.width, gl.canvas.height];
+    uniforms.u_gridparams = [this.texMain.texWidth, this.texMain.texHeight, this.gridMain.parameters.padding];
+    uniforms.u_timescale = 3.0;
+
+    // spanHeight, spanWidth, stretch, preserve:
+    uniforms.u_matrix = VisualAux.textureStretch(this.texMain.texWidth, this.texMain.texHeight, "stretch")
+  }
+
+  resized() {
+    this.gridMain.resize(gl.canvas.width, gl.canvas.height);
+    this.texMain.updateTextureDimensions(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
+  }
+
+  display(tempDeltaTime, tempAnimRate) {
+    // Check to see if new dots have forced a resize:
+    if (this.userSim.userCount > this.gridMain.parameters.tiles) {
+      this.gridMain.addTiles(this.userSim.userCount, gl.canvas.width, gl.canvas.height);
+      this.texMain.updateTextureDimensions(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
+    }
+    this.userSim.setStateChanges(this.texMain.texArray);
+    this.texMain.updateTexture();
+    this.texMain.updateAnimations(tempDeltaTime, tempAnimRate);
+    this.texMain.display();
+  }
+}
+
+class LayoutUsersStatic extends LayoutSimGrid {
+  constructor() {
+    super();
+    let tickInterval = 25;
+    let updatesPerTick = this.userSim.userCount / 8;
+    this.userStateProbArray = VisualAux.createProbabilityArray(0.2, 0.05, Object.keys(this.userSim.stateCodes).length - 1);
+
+    // Start the UserSim clock:
+    this.clientClock = setInterval(() => {
+      for (let i = 0; i < updatesPerTick; i++) {
+        var tempStateIndex = VisualAux.processProbabilityArray(this.userStateProbArray);
+        var stateCodes = this.userSim.stateCodes;
+        var tempState = Object.values(stateCodes)[tempStateIndex];
+        if (tempState == null) {
+          tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
+        }
+        this.userSim.setStateRandomUser(tempState);
+      }
+
+      if (this.userSim.stateUpdateQueue.length >= this.userSim.maxStateQueue) {
+        this.userSim.setStateChanges(this.texMain); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
+      }
+    }, tickInterval);
+  }
+}
+
+class LayoutUsersJoin extends LayoutSimGrid {
+  constructor(tempStartCount, tempEndCount, tempGrowthRate) {
+    super();
+    this.startCount = tempStartCount;
+    this.endCount = tempEndCount;
+    this.growthRate = tempGrowthRate;
+    let dotPadding = 0.1;
+    let maxStateQueue = tempStartCount * 4;
+    this.gridMain = new UserGrid(tempStartCount, gl.canvas.width, gl.canvas.height, dotPadding, "max");
+    this.userSim = new UserSimulator(tempStartCount, maxStateQueue);
+    this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
+    this.texMain.randomizeTimers();
+
+    let tickInterval = 25;
+    let updatesPerTick = this.userSim.userCount / 8;
+    this.userStateProbArray = VisualAux.createProbabilityArray(0.2, 0.05, Object.keys(this.userSim.stateCodes).length - 1);
+
+    // State update clock:
+    this.clientClock = setInterval(() => {
+      for (let i = 0; i < updatesPerTick; i++) {
+        var tempStateIndex = VisualAux.processProbabilityArray(this.userStateProbArray);
+        var stateCodes = this.userSim.stateCodes;
+        var tempState = Object.values(stateCodes)[tempStateIndex]; // Use random index to get a stateCode.
+        if (tempState == null) {
+          tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
+        }
+        this.userSim.setStateRandomUser(tempState);
+      }
+
+      for (let i = 0; i < this.userSim.userCount * this.growthRate; i++) {
+        this.userSim.userJoin();
+      }
+
+      if (this.userSim.userCount > this.endCount) {
+        let tempDotPadding = this.gridMain.parameters.padding;
+        this.userSim.userCount = null;
+        this.gridMain = null;
+        this.texMain = null;
+        this.gridMain = new UserGrid(this.startCount, gl.canvas.width, gl.canvas.height, tempDotPadding, "max");
+        this.userSim = new UserSimulator(this.startCount, this.userSim.maxStateQueue);
+        this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
+        for (let i = 0; i < this.startCount; i++)
+          this.userSim.userJoin();
+      }
+
+      if (this.userSim.stateUpdateQueue.length >= this.userSim.maxStateQueue) {
+        this.userSim.setStateChanges(this.texMain); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
+      }
+    }, tickInterval);
+  }
 }
 
 // Theme selection:
@@ -186,7 +232,6 @@ class UserSimulator {
   constructor(tempUserCount, tempMaxStateQueue) {
     this.userCount = 0;
     this.userArray = [];
-    this.updatesPerTick = 0;
     this.stateUpdateQueue = [];
     this.maxStateQueue = tempMaxStateQueue;
     this.stateChangeCounter = 0;
@@ -202,9 +247,6 @@ class UserSimulator {
       neverInitialized: 0,
     };
 
-    this.eventCodes = {
-    };
-
     this.initUserArray(tempUserCount);
   }
 
@@ -216,7 +258,6 @@ class UserSimulator {
 
   userJoin() {
     let uninitCode = this.stateCodes.neverInitialized;
-
     this.userArray.push({
       userID: (Math.random() + 1).toString(36).substring(7),
       currentState: uninitCode,
@@ -235,8 +276,7 @@ class UserSimulator {
     this.userArray[tempIndex].currentState = offlineCode;
   }
 
-  // Enqueues a number of state changes each tick:
-  setRandomState(stateCode) {
+  setStateRandomUser(stateCode) {
     // Use random noise function to select a user/texel/dot:
     var offset = this.stateChangeCounter / this.userCount;
     var userIndex = Math.floor(VisualAux.sineNoise(0, this.userCount - 1, 1, offset, offset));
@@ -248,7 +288,7 @@ class UserSimulator {
     }
   }
 
-  // Maps user ID/index onto the texture (need something more for persistance later):
+  // Maps user ID/index onto the texture:
   getTextureIndex(userArrayIndex) {
     return 4 * userArrayIndex;
   }
@@ -301,73 +341,42 @@ class UserSimulator {
   }
 }
 
-class VisualAux {
-
-  static sineNoise(lowerBound, upperBound, timeScale, inputA, inputB) {
-    let noiseTimer = performance.now() * timeScale;
-    return Math.min(Math.max(upperBound * (0.5 + 0.255 * (Math.sin(2 * inputA * noiseTimer) + Math.sin(Math.PI * inputB * noiseTimer))), lowerBound), upperBound);
-  }
-
-  static createProbabilityArray(mean, deviation, arrayLength) {
-    let tempArray = [];
-    for (let i = 0; i < arrayLength; i++) {
-      tempArray.push(Math.min(Math.max((mean + deviation * Math.sin(2 * Math.PI * Math.random())), 0), 1));
-    }
-    tempArray.sort((a, b) => a + b);
-    return tempArray;
-  }
-
-  static processProbabilityArray(tempArray) {
-    var rollIterations = null;
-    var counter;
-    for (counter = 0; counter < tempArray.length; counter++) {
-      if (Math.random() < tempArray[counter]) {
-        rollIterations = counter;
-        break;
-      }
-    }
-    return rollIterations;
-  }
-}
-
 class DataTexture {
   constructor(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
     this.texelCount = this.texWidth * this.texHeight;
     this.texArray = new Uint8Array(this.texelCount * 4);
-    this.initColorTexture();
-    this.initDataTexture();
+    this.colorTexture = this.createTexture(tempWidth, tempHeight, 0);
+    this.dataTexture = this.createTexture(tempWidth, tempHeight, 1);
+    this.initFramebuffer();
+    uniforms.u_texture_color = this.colorTexture;
+    uniforms.u_texture_data = this.dataTexture;
   }
 
-  initDataTexture() {
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    this.dataTexture = gl.createTexture();
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.dataTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-
-    // Don't generate mip maps.
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  createTexture(tempWidth, tempHeight) {
+    let tempTexture = twgl.createTexture(gl, {
+      target: gl.TEXTURE_2D,
+      width: tempWidth,
+      height: tempHeight,
+      format: gl.RGBA,
+      min: gl.NEAREST,
+      mag: gl.NEAREST,
+      wrap: gl.CLAMP_TO_EDGE,
+    });
+    return tempTexture;
   }
 
-  initColorTexture() {
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    this.colorTexture = gl.createTexture();
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.colorTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-
-    // Don't generate mip maps.
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  initFramebuffer() {
+    this.bufferAttachments = [{
+      format: gl.RGBA,
+      type: gl.UNSIGNED_BYTE,
+      min: gl.NEAREST,
+      mag: gl.NEAREST,
+      wrap: gl.CLAMP_TO_EDGE,
+      attachment: this.colorTexture,
+    }];
+    this.stageBufferInfo = twgl.createFramebufferInfo(gl, this.bufferAttachments, this.texWidth, this.texHeight);
   }
 
   randomizeTimers() {
@@ -377,47 +386,57 @@ class DataTexture {
   }
 
   updateTexture() {
-    gl.activeTexture(gl.TEXTURE1);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.texWidth, this.texHeight, gl.RGBA, gl.UNSIGNED_BYTE, this.texArray);
+    let options = {
+      target: gl.TEXTURE_2D,
+      width: this.texWidth,
+      height: this.texHeight,
+      format: gl.RGBA,
+      min: gl.NEAREST,
+      mag: gl.NEAREST,
+      wrap: gl.CLAMP_TO_EDGE,
+    };
+    twgl.setTextureFromArray(gl, this.dataTexture, this.texArray, options);
   }
 
-  // Resizes the texArray used by gl.texSubImage2D:
+  display() {
+    twgl.resizeFramebufferInfo(gl, this.stageBufferInfo, this.bufferAttachments, this.texWidth, this.texHeight);
+
+    // Use the first fragment shader.
+    gl.useProgram(programInfoB.program);
+    twgl.setUniforms(programInfoB, uniforms);
+    twgl.bindFramebufferInfo(gl, this.stageBufferInfo);
+    twgl.drawBufferInfo(gl, bufferInfo);
+
+    twgl.bindFramebufferInfo(gl, null);
+
+    // Use the second fragment shader.
+    gl.useProgram(programInfoA.program);
+    twgl.setUniforms(programInfoA, uniforms);
+    twgl.drawBufferInfo(gl, bufferInfo);
+  }
+
+  // Resizes the texArray:
   // Sets a new end point for texArray if the texture shrinks.
   // Copies values using an ArrayBuffer if the texture grows. 
   updateTextureDimensions(tempWidth, tempHeight) {
     var tempTexelCount = tempWidth * tempHeight;
-    if (this.texWidth > tempWidth && this.texHeight > tempHeight) {
+    if (this.texelCount > tempTexelCount) {
       this.texArray = this.texArray.subarray(0, tempTexelCount * 4);
-    } else if (this.texelCount > tempTexelCount) {
-      this.texArray = this.texArray.subarray(0, tempTexelCount * 4);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     } else {
-      let tempArray = new ArrayBuffer(tempTexelCount * 4 * 8);
-      new Uint8Array(tempArray).set(new Uint8Array(this.texArray));
-      this.texArray = new Uint8Array(tempArray, 0, tempTexelCount * 4);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      let tempBuffer = new ArrayBuffer(tempTexelCount * 4);
+      new Uint8Array(tempBuffer).set(new Uint8Array(this.texArray));
+      this.texArray = new Uint8Array(tempBuffer);
     }
-
-    // DELETE ME
-    gl.activeTexture(gl.TEXTURE0);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, tempWidth, tempHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
     this.texelCount = tempTexelCount;
-  }
-
-  updateTextureColumnExpansion() {
-
   }
 
   // Increments the timer and pops buffColor:
   // Javascript Space->Shader Space:
   // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
   // = {startColor, endColor, buffColor, Timer}
-  updateAnimations(tempAnimRate) {
+  updateAnimations(tempDeltaTime, tempAnimRate) {
     for (let i = 0; i < this.texArray.length; i += 4) {
       // Animation has completed.
       if (this.texArray[i + 2] != 0 && this.texArray[i + 3] >= 255) {
@@ -426,7 +445,7 @@ class DataTexture {
         this.texArray[i + 2] = 0;                    // 0->buffColor.
         this.texArray[i + 3] = 0;                    // 0->timer.
       } else {
-        this.texArray[i + 3] = 255 * Math.min(Math.max(deltaTime * tempAnimRate
+        this.texArray[i + 3] = 255 * Math.min(Math.max(tempDeltaTime * tempAnimRate
           + this.texArray[i + 3] / 255, 0), 1.0);
       }
     }
@@ -434,80 +453,103 @@ class DataTexture {
 }
 
 class UserGrid {
-  constructor(tempDotCount, canvasWidth, canvasHeight, tempPadding) {
-    this.dotCount = tempDotCount;
-    this.dotPadding = tempPadding;
-    this.gridWidth = 0;
-    this.gridHeight = 0;
-    this.gridMarginX = 0;
-    this.gridMarginY = 0;
-    this.gridRows = 0;
-    this.gridColumns = 0;
-    this.tileSize = 0;
-    this.updateTilingMaxSpan(canvasWidth, canvasHeight);
+  constructor(tempTiles, canvasWidth, canvasHeight, tempPadding, tempSpanMode) {
+    this.parameters = {
+      tiles: tempTiles, tileSize: 0, width: 0, height: 0, rows: 0, columns: 0,
+      padding: tempPadding, marginX: 0, marginY: 0, spanMode: tempSpanMode
+    };
+    this.updateTiling(tempSpanMode, canvasWidth, canvasHeight);
   }
 
-  addTiles(tempTileCount) {
-    let gridCapacity = this.gridColumns * this.gridRows;
+  addTiles(tempTileCount, tempWidth, tempHeight) {
+    let gridCapacity = this.parameters.columns * this.parameters.rows;
     if (tempTileCount > gridCapacity) {
-      this.dotCount = tempTileCount;
-      this.updateTilingMaxSpan(gridCanvas.width, gridCanvas.height);
-    } else if (tempTileCount > this.dotCount) {
-      this.dotCount = tempTileCount;
+      this.parameters.tiles = tempTileCount;
+      this.updateTiling(this.parameters.spanMode, tempWidth, tempHeight);
+    } else if (tempTileCount > this.parameters.tiles) {
+      this.parameters.tiles = tempTileCount;
     } else {
-      console.log("UserGrid.addTiles: this.tileCount > tempTileCount.")
+      console.log("UserGrid.addTiles: parameters.tiles > tempTileCount.")
     }
   }
 
-  removeTiles(tempTileCount) {
-    let lowerBoundCapacity = this.gridColumns * (this.gridRows - 1);
+  removeTiles(tempTileCount, tempWidth, tempHeight) {
+    let lowerBoundCapacity = this.parameters.columns * (this.parameters.rows - 1);
     if (tempTileCount <= lowerBoundCapacity) {
-      this.dotCount = tempTileCount;
-      this.updateTilingMaxSpan(gridCanvas.width, gridCanvas.height);
+      this.parameters.tiles = tempTileCount;
+      this.updateTiling(this.parameters.spanMode, tempWidth, tempHeight);
     }
   }
 
-  // Main tiling algorithm:
-  // Picks between spanning height or spanning width; whichever covers more area.
-  // BUG: Low tilecounts cause wasted space.
-  updateTilingMaxSpan(canvasWidth, canvasHeight) {
-    let windowRatio = canvasWidth / canvasHeight;
-    let cellWidth = Math.sqrt(this.dotCount * windowRatio);
-    let cellHeight = this.dotCount / cellWidth;
+  resize(tempWidth, tempHeight) {
+    this.updateTiling(this.parameters.spanMode, tempWidth, tempHeight);
+  }
 
-    let rowsH = Math.ceil(cellHeight);
-    let columnsH = Math.ceil(this.dotCount / rowsH);
-    while (rowsH * windowRatio < columnsH) {
-      rowsH++;
-      columnsH = Math.ceil(this.dotCount / rowsH);
+  updateTiling(tempSpanMode, tempWidth, tempHeight) {
+    let paramsHeight, paramsWidth;
+    switch (tempSpanMode) {
+      case "spanWidth":
+        paramsWidth = this.tilingSpanWidth(tempWidth, tempHeight);
+        Object.assign(this.parameters, paramsWidth);
+        break;
+      case "spanHeight":
+        paramsHeight = this.tilingSpanHeight(tempWidth, tempHeight);
+        Object.assign(this.parameters, paramsHeight);
+        break;
+      default:
+        paramsWidth = this.tilingSpanWidth(tempWidth, tempHeight);
+        paramsHeight = this.tilingSpanHeight(tempWidth, tempHeight);
+        if (paramsWidth.tileSize < paramsHeight.tileSize) {
+          Object.assign(this.parameters, paramsHeight);
+        } else {
+          Object.assign(this.parameters, paramsWidth);
+        }
     }
-    let tileSizeH = canvasHeight / rowsH;
+    this.parameters.marginX = (tempWidth - this.parameters.width) / 2;
+    this.parameters.marginY = (tempHeight - this.parameters.height) / 2;
+  }
+
+  tilingSpanWidth(canvasWidth, canvasHeight) {
+    let windowRatio = canvasWidth / canvasHeight;
+    let cellWidth = Math.sqrt(this.parameters.tiles * windowRatio);
 
     let columnsW = Math.ceil(cellWidth);
-    let rowsW = Math.ceil(this.dotCount / columnsW);
+    let rowsW = Math.ceil(this.parameters.tiles / columnsW);
     while (columnsW < rowsW * windowRatio) {
       columnsW++;
-      rowsW = Math.ceil(this.dotCount / columnsW);
+      rowsW = Math.ceil(this.parameters.tiles / columnsW);
     }
     let tileSizeW = canvasWidth / columnsW;
 
-    // If the tiles best span height, update grid parameters to span height else...
-    if (tileSizeW < tileSizeH) {
-      this.gridRows = rowsH;
-      this.gridColumns = columnsH;
-      this.tileSize = tileSizeH;
-
-      this.gridWidth = columnsH * tileSizeH;
-      this.gridHeight = rowsH * tileSizeH;
-    } else {
-      this.gridRows = rowsW;
-      this.gridColumns = columnsW;
-      this.tileSize = tileSizeW;
-      this.gridWidth = columnsW * tileSizeW;
-      this.gridHeight = rowsW * tileSizeW;
+    let tempParameters = {
+      rows: rowsW, columns: columnsW,
+      tileSize: tileSizeW, width: canvasWidth,
+      height: rowsW * tileSizeW,
     }
-    this.gridMarginX = (canvasWidth - this.gridWidth) / 2;
-    this.gridMarginY = (canvasHeight - this.gridHeight) / 2;
+
+    return tempParameters;
+  }
+
+  tilingSpanHeight(canvasWidth, canvasHeight) {
+    let windowRatio = canvasWidth / canvasHeight;
+    let cellWidth = Math.sqrt(this.parameters.tiles * windowRatio);
+    let cellHeight = this.parameters.tiles / cellWidth;
+
+    let rowsH = Math.ceil(cellHeight);
+    let columnsH = Math.ceil(this.parameters.tiles / rowsH);
+    while (rowsH * windowRatio < columnsH) {
+      rowsH++;
+      columnsH = Math.ceil(this.parameters.tiles / rowsH);
+    }
+    let tileSizeH = canvasHeight / rowsH;
+
+    let tempParameters = {
+      rows: rowsH, columns: columnsH,
+      tileSize: tileSizeH, width: columnsH * tileSizeH,
+      height: canvasHeight,
+    }
+
+    return tempParameters;
   }
 
   // Finds the index of the dot underneath the mouse:
@@ -538,5 +580,74 @@ class UserGrid {
   }
 }
 
-const myLayout = "default";
-setupLayout(myLayout);
+class VisualAux {
+
+  static sineNoise(lowerBound, upperBound, timeScale, inputA, inputB) {
+    let noiseTimer = performance.now() * timeScale;
+    return Math.min(Math.max(upperBound * (0.5 + 0.255 * (Math.sin(2 * inputA * noiseTimer) + Math.sin(Math.PI * inputB * noiseTimer))), lowerBound), upperBound);
+  }
+
+  static createProbabilityArray(mean, deviation, arrayLength) {
+    let tempArray = [];
+    for (let i = 0; i < arrayLength; i++) {
+      tempArray.push(Math.min(Math.max((mean + deviation * Math.sin(2 * Math.PI * Math.random())), 0), 1));
+    }
+    tempArray.sort((a, b) => a + b);
+    return tempArray;
+  }
+
+  static textureStretch(tempWidth, tempHeight, tempScaleType) {
+    const canvasAspectRatio = gl.canvas.width / gl.canvas.height;
+    const textureAspectRatio = tempWidth / tempHeight;
+    let scaleX, scaleY;
+    let scaleType = tempScaleType;
+    switch (scaleType) {
+      case 'spanHeight':
+        scaleY = 1;
+        scaleX = textureAspectRatio / canvasAspectRatio;
+        break;
+      case 'spanWidth':
+        scaleX = 1;
+        scaleY = canvasAspectRatio / textureAspectRatio;
+        break;
+      case 'stretch':
+        scaleY = 1;
+        scaleX = textureAspectRatio / canvasAspectRatio;
+        if (scaleX > 1) {
+          scaleY = 1 / scaleX;
+          scaleX = 1;
+        }
+        break;
+      case 'preserve':
+        scaleY = 1;
+        scaleX = textureAspectRatio / canvasAspectRatio;
+        if (scaleX < 1) {
+          scaleY = 1 / scaleX;
+          scaleX = 1;
+        }
+        break;
+    }
+
+    let matrix = [
+      scaleX, 0.0, 0.0,
+      0.0, -scaleY, 0.0,
+      0.0, 0.0, 1.0,
+    ]
+
+    return matrix;
+  }
+
+  static processProbabilityArray(tempArray) {
+    var rollIterations = null;
+    var counter;
+    for (counter = 0; counter < tempArray.length; counter++) {
+      if (Math.random() < tempArray[counter]) {
+        rollIterations = counter;
+        break;
+      }
+    }
+    return rollIterations;
+  }
+}
+
+setup();
