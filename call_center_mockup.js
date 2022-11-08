@@ -120,7 +120,7 @@ class LayoutSimGrid {
     if (Number.isInteger(tempMouseOver.index)) {
       tempMouseOver.user = this.userSim.userArray[tempMouseOver.index];
       let tempColor = VisualAux.inverseStatusCode(tempMouseOver.user.currentState, uniforms.u_colortheme);
-      console.log('%cuserArray[%s]:', tempColor, tempMouseOver.index, tempMouseOver.user);
+      console.log('%cuserArray[%s]:', tempColor, tempMouseOver.index, tempColor, tempMouseOver.user);
     } else {
       console.log("Invalid Target")
     }
@@ -705,7 +705,7 @@ class VisualAux {
         tempColorArray = tempColorTheme.slice(16, 19);
         break;
     }
-    tempColor = "font-weight: bold; color: rgb(" + 255 * tempColorArray[0] + ","
+    tempColor = "font-weight: bold; background-color: rgb(" + 255 * tempColorArray[0] + ","
       + 255 * tempColorArray[1] + "," + 255 * tempColorArray[2] + ");";
 
     return tempColor;
