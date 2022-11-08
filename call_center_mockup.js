@@ -120,7 +120,7 @@ class LayoutSimGrid {
     if (Number.isInteger(tempMouseOver.index)) {
       tempMouseOver.user = this.userSim.userArray[tempMouseOver.index];
       let tempColor = VisualAux.inverseStatusCode(tempMouseOver.user.currentState, uniforms.u_colortheme);
-      console.log('%cuserArray[%s]:', tempColor, tempMouseOver.index, tempColor, tempMouseOver.user);
+      console.log('%cuserArray[%s]:', tempColor, tempMouseOver.index, tempMouseOver.user);
     } else {
       console.log("Invalid Target")
     }
