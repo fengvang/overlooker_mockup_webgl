@@ -277,10 +277,12 @@ class UserSimulator {
   }
 
   initUserArrayRandom(tempUserCount) {
-    let tempStateIndex = Math.floor(Math.random * (Object.keys(this.stateCodes).length - 1));
-    var tempState = Object.values(this.stateCodes)[tempStateIndex];
+    let tempLength = Object.keys(this.stateCodes).length - 1;
+
     for (let i = 0; i < tempUserCount; i++) {
-      this.userJoin(tempState);
+      let tempStateIndex = Math.floor(Math.random() * tempLength + 0.5);
+      var [tempStateName, tempStateCode] = Object.entries(this.stateCodes)[tempStateIndex];
+      this.userJoin(tempStateCode, tempStateName);
     }
   }
 
