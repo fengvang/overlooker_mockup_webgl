@@ -222,9 +222,12 @@ class LayoutUsersJoin extends LayoutSimGrid {
       }
 
       if (lastAnimationTime >= 1.0) {
+        let stateCodes = this.userSim.stateCodes;
+        let tempLength = Object.keys(stateCodes).length - 1;
         for (let i = 0; i < joinPerTick; i++) {
-          var [stateName, stateCode] = Object.entries(this.userSim.stateCodes)[3];
-          this.userSim.userJoin(stateCode, stateName);
+          let tempStateIndex = Math.floor(Math.random() * (tempLength + 0.5));
+          var [tempStateName, tempStateCode] = Object.entries(stateCodes)[tempStateIndex];
+          this.userSim.userJoin(tempStateCode, tempStateName);
         }
         lastAnimationTime = 0;
       } else {
