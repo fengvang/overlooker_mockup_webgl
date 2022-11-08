@@ -1,4 +1,7 @@
-var mouseX, mouseY;
+var mouseX = 0;
+var mouseY = 0;
+var runTime = 0;
+var deltaTime = 0;
 
 // Initialize WebGL:
 const gridCanvas = document.getElementById("cgl");
@@ -22,7 +25,7 @@ const glArrays = {
 
 const uniforms = {
   u_time: 0, u_mouse: 0, u_timescale: 0,
-  u_resolution: 0, u_gridparams: 0, u_colortheme: 0,
+  u_resolution: 0, u_gridparams: [0, 0, 0], u_colortheme: 0,
   u_texture_data: 0, u_texture_color: 0, u_matrix: 0,
 };
 const bufferInfo = twgl.createBufferInfoFromArrays(gl, glArrays);
@@ -31,22 +34,26 @@ twgl.setBuffersAndAttributes(gl, programInfoB, bufferInfo);
 
 function setup() {
   "use strict";
-  let tempLayout, layout, animRate, prevTime, runTime, deltaTime;
-  tempLayout = "default"; // Change to test layouts.
+  let tempLayout, layout;
+  let animRate = 0;
+  let prevTime = 0;
+  tempLayout = "growing"; // Change to test layouts.
 
   switch (tempLayout) {
     case "growing":
       let startCount = 10;
       let endCount = 100000;
-      let growthRate = 0.001;
-      animRate = 3.0;
-      uniforms.u_colortheme = setColorTheme("random");
-      layout = new LayoutUsersJoin(startCount, endCount, growthRate);
+      animRate = 1.5;
+      let joinAnimRate = animRate;
+      let joinPerTick = 1;
+      uniforms.u_colortheme = VisualAux.setColorTheme("random");
+      layout = new LayoutUsersJoin(startCount, endCount, joinAnimRate, joinPerTick);
       break;
     default:
       animRate = 3.0;
-      uniforms.u_colortheme = setColorTheme("random");
-      layout = new LayoutUsersStatic;
+      let userCount = 10000;
+      uniforms.u_colortheme = VisualAux.setColorTheme("random");
+      layout = new LayoutUsersStatic(userCount);
   }
 
   // Start draw loop:
@@ -57,48 +64,72 @@ function setup() {
 
     // Resize if needed.
     if (twgl.resizeCanvasToDisplaySize(gl.canvas)) {
-      layout.resized();
+      layout.resize();
     }
-    layout.updateUniforms();
 
     layout.display(deltaTime, animRate);
     requestAnimationFrame(render); // Repeat loop.
   }
   layout.updateUniforms();
+  deltaTime = 0.0;
   requestAnimationFrame(render); // Start loop.
 }
 
 class LayoutSimGrid {
-  constructor() {
-    let tempUserCount = 10000;
+  constructor(tempUserCount) {
     let dotPadding = 0.1;
-    let maxStateQueue = tempUserCount * 4;
-    this.gridMain = new UserGrid(tempUserCount, gl.canvas.width, gl.canvas.height, dotPadding, "max");
-    this.userSim = new UserSimulator(tempUserCount, maxStateQueue);
+    this.maxStateQueue = 500000;
+    this.gridMain = new UserGrid(tempUserCount, gl.canvas.width, gl.canvas.height, dotPadding, "maxArea");
+    this.userSim = new UserSimulator(tempUserCount);
     this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
     this.texMain.randomizeTimers();
+    this.mouseOver = { index: "uninit", user: 0 };
+    this.updateUniforms();
+
+    addEventListener('click', (event) => {
+      this.mouseClick();
+    });
   }
 
   updateUniforms() {
     uniforms.u_resolution = [gl.canvas.width, gl.canvas.height];
-    uniforms.u_gridparams = [this.texMain.texWidth, this.texMain.texHeight, this.gridMain.parameters.padding];
     uniforms.u_timescale = 3.0;
+    uniforms.u_gridparams = [this.texMain.texWidth, this.texMain.texHeight, this.gridMain.parameters.padding];
 
     // spanHeight, spanWidth, stretch, preserve:
-    uniforms.u_matrix = VisualAux.textureStretch(this.texMain.texWidth, this.texMain.texHeight, "stretch")
+    uniforms.u_matrix = VisualAux.textureStretch(this.texMain.texWidth, this.texMain.texHeight, "stretch");
   }
 
-  resized() {
+  resize() {
     this.gridMain.resize(gl.canvas.width, gl.canvas.height);
     this.texMain.updateTextureDimensions(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
+    this.updateUniforms();
+  }
+
+  addColumnsRows(addCount) {
+    this.gridMain.addTiles(addCount, gl.canvas.width, gl.canvas.height);
+    this.texMain.updateTextureDimensions(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
+    this.updateUniforms();
+  }
+
+  mouseClick() {
+    var tempMouseOver = { index: this.gridMain.getMouseOverIndex(), user: 0 };
+
+    if (Number.isInteger(tempMouseOver.index)) {
+      tempMouseOver.user = this.userSim.userArray[tempMouseOver.index];
+      let tempColor = VisualAux.inverseStatusCode(tempMouseOver.user.currentState, uniforms.u_colortheme);
+      console.log('%cuserArray[%s]:', tempColor, tempMouseOver.index, tempMouseOver.user);
+    } else {
+      console.log("Invalid Target")
+    }
   }
 
   display(tempDeltaTime, tempAnimRate) {
-    // Check to see if new dots have forced a resize:
-    if (this.userSim.userCount > this.gridMain.parameters.tiles) {
-      this.gridMain.addTiles(this.userSim.userCount, gl.canvas.width, gl.canvas.height);
-      this.texMain.updateTextureDimensions(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
+    if (this.userSim.userArray.length > this.gridMain.parameters.activeTiles) {
+      let addCount = this.userSim.userArray.length - this.gridMain.parameters.activeTiles;
+      this.addColumnsRows(addCount);
     }
+
     this.userSim.setStateChanges(this.texMain.texArray);
     this.texMain.updateTexture();
     this.texMain.updateAnimations(tempDeltaTime, tempAnimRate);
@@ -107,14 +138,14 @@ class LayoutSimGrid {
 }
 
 class LayoutUsersStatic extends LayoutSimGrid {
-  constructor() {
-    super();
+  constructor(tempUserCount) {
+    super(tempUserCount);
     let tickInterval = 25;
-    let updatesPerTick = this.userSim.userCount / 8;
     this.userStateProbArray = VisualAux.createProbabilityArray(0.2, 0.05, Object.keys(this.userSim.stateCodes).length - 1);
 
     // Start the UserSim clock:
     this.clientClock = setInterval(() => {
+      var updatesPerTick = this.userSim.userArray.length / 8;
       for (let i = 0; i < updatesPerTick; i++) {
         var tempStateIndex = VisualAux.processProbabilityArray(this.userStateProbArray);
         var stateCodes = this.userSim.stateCodes;
@@ -122,35 +153,35 @@ class LayoutUsersStatic extends LayoutSimGrid {
         if (tempState == null) {
           tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
         }
-        this.userSim.setStateRandomUser(tempState);
+        var lowerBound = 0;
+        var upperBound = this.userSim.userArray.length - 1;
+        this.userSim.setStateRandomUser(tempState, lowerBound, upperBound);
       }
 
-      if (this.userSim.stateUpdateQueue.length >= this.userSim.maxStateQueue) {
-        this.userSim.setStateChanges(this.texMain); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
+      if (this.userSim.stateUpdateQueue.length >= this.maxStateQueue) {
+        this.userSim.setStateChanges(this.texMain.gridArray); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
       }
     }, tickInterval);
   }
 }
 
 class LayoutUsersJoin extends LayoutSimGrid {
-  constructor(tempStartCount, tempEndCount, tempGrowthRate) {
-    super();
-    this.startCount = tempStartCount;
-    this.endCount = tempEndCount;
-    this.growthRate = tempGrowthRate;
-    let dotPadding = 0.1;
-    let maxStateQueue = tempStartCount * 4;
-    this.gridMain = new UserGrid(tempStartCount, gl.canvas.width, gl.canvas.height, dotPadding, "max");
-    this.userSim = new UserSimulator(tempStartCount, maxStateQueue);
-    this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
-    this.texMain.randomizeTimers();
+  constructor(startCount, endCount, simAnimRate, joinPerTick) {
+    super(startCount);
 
-    let tickInterval = 25;
-    let updatesPerTick = this.userSim.userCount / 8;
+    // Priming clock loop:
     this.userStateProbArray = VisualAux.createProbabilityArray(0.2, 0.05, Object.keys(this.userSim.stateCodes).length - 1);
+    let tickInterval = 25;
+    let lastAnimationTime = 0;
+    let simDeltaTime = 0;
+    let simPrevTime = 0;
 
     // State update clock:
     this.clientClock = setInterval(() => {
+      var updatesPerTick = this.userSim.userArray.length / 8;
+      simDeltaTime = runTime - simPrevTime;
+      simPrevTime = runTime;
+
       for (let i = 0; i < updatesPerTick; i++) {
         var tempStateIndex = VisualAux.processProbabilityArray(this.userStateProbArray);
         var stateCodes = this.userSim.stateCodes;
@@ -158,82 +189,44 @@ class LayoutUsersJoin extends LayoutSimGrid {
         if (tempState == null) {
           tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
         }
-        this.userSim.setStateRandomUser(tempState);
+        var lowerBound = 0;
+        var tempUpperBound = this.gridMain.parameters.columns * (this.gridMain.parameters.rows - 1);
+        var upperBound = VisualAux.constrain(0, this.userSim.userArray.length - 1, tempUpperBound);
+        this.userSim.setStateRandomUser(tempState, lowerBound, upperBound);
       }
 
-      for (let i = 0; i < this.userSim.userCount * this.growthRate; i++) {
-        this.userSim.userJoin();
+      if (lastAnimationTime >= 1.0) {
+        for (let i = 0; i < joinPerTick; i++) {
+          this.userSim.userJoin(this.userSim.stateCodes.available);
+        }
+        lastAnimationTime = 0;
+      } else {
+        lastAnimationTime += simDeltaTime * simAnimRate;
       }
 
-      if (this.userSim.userCount > this.endCount) {
+      // Reset grid once max user count has been reached.
+      if (this.userSim.userArray.length > endCount) {
         let tempDotPadding = this.gridMain.parameters.padding;
-        this.userSim.userCount = null;
         this.gridMain = null;
         this.texMain = null;
-        this.gridMain = new UserGrid(this.startCount, gl.canvas.width, gl.canvas.height, tempDotPadding, "max");
-        this.userSim = new UserSimulator(this.startCount, this.userSim.maxStateQueue);
+        this.gridMain = new UserGrid(startCount, gl.canvas.width, gl.canvas.height, tempDotPadding, "maxArea");
         this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
-        for (let i = 0; i < this.startCount; i++)
-          this.userSim.userJoin();
+        this.texMain.randomizeTimers();
+        this.userSim = new UserSimulator(startCount);
+        lastAnimationTime = 0;
       }
 
-      if (this.userSim.stateUpdateQueue.length >= this.userSim.maxStateQueue) {
-        this.userSim.setStateChanges(this.texMain); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
+      if (this.userSim.stateUpdateQueue.length >= this.maxStateQueue) {
+        this.userSim.setStateChanges(this.texMain.texArray); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
       }
     }, tickInterval);
   }
 }
 
-// Theme selection:
-function setColorTheme(themeSelection) {
-  let colorOnCall, colorAvailable, colorPreviewingTask,
-    colorAfterCall, colorLoggedOut, colorBackground, backGroundIndex;
-  let tempColorTheme = [];
-
-  switch (themeSelection) {
-    case "user":
-      // Values from CSS color picker go here.
-      break;
-    case "random":
-      for (let i = 0; i < 6 * 4; i += 4) {
-        tempColorTheme[i] = 255 * Math.random();
-        tempColorTheme[i + 1] = 255 * Math.random();
-        tempColorTheme[i + 2] = 255 * Math.random();
-        tempColorTheme[i + 3] = 255;
-      }
-      break;
-    default:
-      colorBackground = [11, 10, 17, 255]; // Normally [0, 0, 0, 255]
-      colorOnCall = [243, 108, 82, 255];
-      colorAvailable = [63, 191, 177, 255];
-      colorPreviewingTask = [0, 110, 184, 255];
-      colorAfterCall = [255, 205, 52, 255];
-      colorLoggedOut = [11, 10, 17, 255]; // Normally [0, 48, 70, 255]
-      break;
-  }
-
-  if (themeSelection != "random") {
-    tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
-      colorAvailable, colorOnCall, colorBackground);
-  }
-
-  backGroundIndex = tempColorTheme.length - 1;
-  document.body.style.backgroundColor = "rgb(" + tempColorTheme[backGroundIndex - 3] + ","
-    + tempColorTheme[backGroundIndex - 2] + "," + tempColorTheme[backGroundIndex - 1] + ")";
-
-  // Normalize values for the shader.
-  for (let i = 0; i < tempColorTheme.length; i++) {
-    tempColorTheme[i] = tempColorTheme[i] / 255;
-  }
-  return tempColorTheme;
-}
-
 class UserSimulator {
-  constructor(tempUserCount, tempMaxStateQueue) {
-    this.userCount = 0;
+  constructor(tempUserCount) {
     this.userArray = [];
     this.stateUpdateQueue = [];
-    this.maxStateQueue = tempMaxStateQueue;
     this.stateChangeCounter = 0;
 
     // Javascript Space->Shader Space:
@@ -247,7 +240,7 @@ class UserSimulator {
       neverInitialized: 0,
     };
 
-    this.initUserArray(tempUserCount);
+    this.initUserArrayRandom(tempUserCount);
   }
 
   initUserArray(tempUserCount) {
@@ -256,17 +249,29 @@ class UserSimulator {
     }
   }
 
-  userJoin() {
-    let uninitCode = this.stateCodes.neverInitialized;
+  initUserArrayRandom(tempUserCount) {
+    let tempStateIndex = Math.floor(Math.random * (Object.keys(this.stateCodes).length - 1));
+    var tempState = Object.values(this.stateCodes)[tempStateIndex];
+    for (let i = 0; i < tempUserCount; i++) {
+      this.userJoin(tempState);
+    }
+  }
+
+  userJoin(initialState) {
+    let stateCode = initialState;
+    if (initialState == null) {
+      stateCode = this.stateCodes.neverInitialized;
+    }
+
     this.userArray.push({
       userID: (Math.random() + 1).toString(36).substring(7),
-      currentState: uninitCode,
+      currentState: stateCode,
       connectionTime: Math.floor(Date.now() * 0.001), // In epoch time.
       connectionStatus: "online",
     });
-    let lastIndex = this.userArray[this.userArray.length - 1];
-    this.pushStateChange(this.getTextureIndex(lastIndex), uninitCode);
-    this.userCount++;
+    let userIndex = this.userArray.length - 1;
+    this.pushStateChange(this.getTextureIndex(userIndex), stateCode);
+    this.stateChangeCounter++;
   }
 
   userLeave(tempIndex) {
@@ -276,15 +281,23 @@ class UserSimulator {
     this.userArray[tempIndex].currentState = offlineCode;
   }
 
-  setStateRandomUser(stateCode) {
-    // Use random noise function to select a user/texel/dot:
-    var offset = this.stateChangeCounter / this.userCount;
-    var userIndex = Math.floor(VisualAux.sineNoise(0, this.userCount - 1, 1, offset, offset));
+  setStateUser(userIndex, stateCode) {
+    this.userArray[userIndex].currentState = stateCode;
+    this.pushStateChange(this.getTextureIndex(userIndex), stateCode);
+    this.stateChangeCounter++;
+  }
+
+  // Use random noise function to select a user/texel/dot:
+  setStateRandomUser(stateCode, lowerBound, upperBound) {
+    if (upperBound == null || lowerBound == null) {
+      lowerBound = 0;
+      upperBound = this.userArray.length - 1;
+    }
+    var offset = this.stateChangeCounter / upperBound;
+    var userIndex = Math.floor(VisualAux.sineNoise(lowerBound, upperBound, 1, offset, offset));
 
     if (this.userArray[userIndex].connectionStatus == "online") {
-      this.userArray[userIndex].currentState = stateCode;
-      this.pushStateChange(this.getTextureIndex(userIndex), stateCode);
-      this.stateChangeCounter++;
+      this.setStateUser(userIndex, stateCode);
     }
   }
 
@@ -345,10 +358,9 @@ class DataTexture {
   constructor(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-    this.texelCount = this.texWidth * this.texHeight;
-    this.texArray = new Uint8Array(this.texelCount * 4);
-    this.colorTexture = this.createTexture(tempWidth, tempHeight, 0);
-    this.dataTexture = this.createTexture(tempWidth, tempHeight, 1);
+    this.texArray = new Uint8Array(tempWidth * tempHeight * 4 + 4);
+    this.colorTexture = this.createTexture(tempWidth, tempHeight);
+    this.dataTexture = this.createTexture(tempWidth, tempHeight);
     this.initFramebuffer();
     uniforms.u_texture_color = this.colorTexture;
     uniforms.u_texture_data = this.dataTexture;
@@ -380,7 +392,7 @@ class DataTexture {
   }
 
   randomizeTimers() {
-    for (let i = 0; i < this.texelCount * 4; i += 4) {
+    for (let i = 0; i < this.texArray.length; i += 4) {
       this.texArray[i + 3] = Math.floor(255 * Math.random());
     }
   }
@@ -419,17 +431,16 @@ class DataTexture {
   // Sets a new end point for texArray if the texture shrinks.
   // Copies values using an ArrayBuffer if the texture grows. 
   updateTextureDimensions(tempWidth, tempHeight) {
-    var tempTexelCount = tempWidth * tempHeight;
-    if (this.texelCount > tempTexelCount) {
-      this.texArray = this.texArray.subarray(0, tempTexelCount * 4);
+    var tempArrayLength = tempWidth * tempHeight * 4 + 4;
+    if (this.texArray.length > tempArrayLength) {
+      this.texArray = this.texArray.subarray(0, tempArrayLength);
     } else {
-      let tempBuffer = new ArrayBuffer(tempTexelCount * 4);
+      let tempBuffer = new ArrayBuffer(tempArrayLength);
       new Uint8Array(tempBuffer).set(new Uint8Array(this.texArray));
       this.texArray = new Uint8Array(tempBuffer);
     }
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-    this.texelCount = tempTexelCount;
   }
 
   // Increments the timer and pops buffColor:
@@ -453,31 +464,23 @@ class DataTexture {
 }
 
 class UserGrid {
-  constructor(tempTiles, canvasWidth, canvasHeight, tempPadding, tempSpanMode) {
+  constructor(tempActiveTiles, canvasWidth, canvasHeight, tempPadding, tempSpanMode) {
     this.parameters = {
-      tiles: tempTiles, tileSize: 0, width: 0, height: 0, rows: 0, columns: 0,
-      padding: tempPadding, marginX: 0, marginY: 0, spanMode: tempSpanMode
+      activeTiles: tempActiveTiles, tileSize: 0, width: 0, height: 0, rows: 0, columns: 0,
+      capacity: 0, padding: tempPadding, marginX: 0, marginY: 0, spanMode: tempSpanMode
     };
     this.updateTiling(tempSpanMode, canvasWidth, canvasHeight);
   }
 
-  addTiles(tempTileCount, tempWidth, tempHeight) {
-    let gridCapacity = this.parameters.columns * this.parameters.rows;
-    if (tempTileCount > gridCapacity) {
-      this.parameters.tiles = tempTileCount;
+  addTiles(tempCountToAdd, tempWidth, tempHeight) {
+    let newActiveTiles = this.parameters.activeTiles + tempCountToAdd;
+    if (newActiveTiles > this.parameters.capacity) {
+      this.parameters.activeTiles += tempCountToAdd;
       this.updateTiling(this.parameters.spanMode, tempWidth, tempHeight);
-    } else if (tempTileCount > this.parameters.tiles) {
-      this.parameters.tiles = tempTileCount;
+    } else if (newActiveTiles > this.parameters.activeTiles) {
+      this.parameters.activeTiles += tempCountToAdd;
     } else {
-      console.log("UserGrid.addTiles: parameters.tiles > tempTileCount.")
-    }
-  }
-
-  removeTiles(tempTileCount, tempWidth, tempHeight) {
-    let lowerBoundCapacity = this.parameters.columns * (this.parameters.rows - 1);
-    if (tempTileCount <= lowerBoundCapacity) {
-      this.parameters.tiles = tempTileCount;
-      this.updateTiling(this.parameters.spanMode, tempWidth, tempHeight);
+      console.log("UserGrid.addTiles: tempCountToAdd <= 0.")
     }
   }
 
@@ -496,14 +499,26 @@ class UserGrid {
         paramsHeight = this.tilingSpanHeight(tempWidth, tempHeight);
         Object.assign(this.parameters, paramsHeight);
         break;
-      default:
+      case "maxTiles":
         paramsWidth = this.tilingSpanWidth(tempWidth, tempHeight);
         paramsHeight = this.tilingSpanHeight(tempWidth, tempHeight);
-        if (paramsWidth.tileSize < paramsHeight.tileSize) {
+        if (paramsWidth.capacity > paramsHeight.capacity) {
+          Object.assign(this.parameters, paramsWidth);
+        } else {
+          Object.assign(this.parameters, paramsHeight);
+        }
+        break;
+      case "maxArea":
+        paramsWidth = this.tilingSpanWidth(tempWidth, tempHeight);
+        paramsHeight = this.tilingSpanHeight(tempWidth, tempHeight);
+        if (paramsWidth.tileSize > paramsHeight.tileSize) {
           Object.assign(this.parameters, paramsHeight);
         } else {
           Object.assign(this.parameters, paramsWidth);
         }
+        break;
+      default:
+        console.log("Invalid tiling spanMode!");
     }
     this.parameters.marginX = (tempWidth - this.parameters.width) / 2;
     this.parameters.marginY = (tempHeight - this.parameters.height) / 2;
@@ -511,76 +526,118 @@ class UserGrid {
 
   tilingSpanWidth(canvasWidth, canvasHeight) {
     let windowRatio = canvasWidth / canvasHeight;
-    let cellWidth = Math.sqrt(this.parameters.tiles * windowRatio);
+    let cellWidth = Math.sqrt(this.parameters.activeTiles * windowRatio);
 
     let columnsW = Math.ceil(cellWidth);
-    let rowsW = Math.ceil(this.parameters.tiles / columnsW);
+    let rowsW = Math.ceil(this.parameters.activeTiles / columnsW);
     while (columnsW < rowsW * windowRatio) {
       columnsW++;
-      rowsW = Math.ceil(this.parameters.tiles / columnsW);
+      rowsW = Math.ceil(this.parameters.activeTiles / columnsW);
     }
     let tileSizeW = canvasWidth / columnsW;
 
     let tempParameters = {
       rows: rowsW, columns: columnsW,
       tileSize: tileSizeW, width: canvasWidth,
-      height: rowsW * tileSizeW,
+      height: rowsW * tileSizeW, capacity: rowsW * columnsW,
     }
-
     return tempParameters;
   }
 
   tilingSpanHeight(canvasWidth, canvasHeight) {
     let windowRatio = canvasWidth / canvasHeight;
-    let cellWidth = Math.sqrt(this.parameters.tiles * windowRatio);
-    let cellHeight = this.parameters.tiles / cellWidth;
+    let cellWidth = Math.sqrt(this.parameters.activeTiles * windowRatio);
+    let cellHeight = this.parameters.activeTiles / cellWidth;
 
     let rowsH = Math.ceil(cellHeight);
-    let columnsH = Math.ceil(this.parameters.tiles / rowsH);
+    let columnsH = Math.ceil(this.parameters.activeTiles / rowsH);
     while (rowsH * windowRatio < columnsH) {
       rowsH++;
-      columnsH = Math.ceil(this.parameters.tiles / rowsH);
+      columnsH = Math.ceil(this.parameters.activeTiles / rowsH);
     }
     let tileSizeH = canvasHeight / rowsH;
 
     let tempParameters = {
       rows: rowsH, columns: columnsH,
       tileSize: tileSizeH, width: columnsH * tileSizeH,
-      height: canvasHeight,
+      height: canvasHeight, capacity: rowsH * columnsH,
     }
-
     return tempParameters;
   }
 
   // Finds the index of the dot underneath the mouse:
   // Treats dots as circular if there are less than 1000.
   getMouseOverIndex() {
-    let inverseScanX = Math.floor((mouseX - this.gridMarginX) / this.tileSize);
-    let inverseScanY = Math.floor((mouseY - this.gridMarginY) / this.tileSize);
-    let tempMouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
-    let mouseOverIndex;
+    let inverseScanX = Math.floor((mouseX - this.parameters.marginX) / this.parameters.tileSize);
+    let inverseScanY = Math.floor((mouseY - this.parameters.marginY) / this.parameters.tileSize);
+    let tempMouseOverIndex = inverseScanX + inverseScanY * this.parameters.columns;
+    let mouseOverIndex = 0;
 
-    if (inverseScanX < 0 || this.gridColumns <= inverseScanX || inverseScanY < 0 || this.dotCount <= tempMouseOverIndex) {
+    if (inverseScanX < 0 || this.parameters.columns <= inverseScanX || inverseScanY < 0 || this.parameters.activeTiles <= tempMouseOverIndex) {
       mouseOverIndex = "UDF";
-    } else if (this.dotCount < 1000) {
-      let dotRadius = this.tileSize * (1 - this.dotPadding) / 2;
-      let scanX = originX + this.gridMarginX + this.tileSize / 2 + inverseScanX * this.tileSize;
-      let scanY = originY + this.gridMarginY + this.tileSize / 2 + inverseScanY * this.tileSize;
-      let centerDistance = Math.sqrt(Math.pow(mouseX + origin - scanX, 2) + Math.pow(mouseY + originY - scanY, 2));
+    } else if (this.parameters.capacity < 500) {
+      let originX = 0;
+      let originY = 0;
+      let dotRadius = this.parameters.tileSize * (1 - this.parameters.padding) / 2;
+      let scanX = originX + this.parameters.marginX + this.parameters.tileSize / 2 + inverseScanX * this.parameters.tileSize;
+      let scanY = originY + this.parameters.marginY + this.parameters.tileSize / 2 + inverseScanY * this.parameters.tileSize;
+      let centerDistance = Math.sqrt(Math.pow(mouseX + originX - scanX, 2) + Math.pow(mouseY + originY - scanY, 2));
       if (centerDistance > dotRadius) {
         mouseOverIndex = "MISS";
       } else {
-        mouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
+        mouseOverIndex = inverseScanX + inverseScanY * this.parameters.columns;
       }
     } else {
-      mouseOverIndex = inverseScanX + inverseScanY * this.gridColumns;
+      mouseOverIndex = inverseScanX + inverseScanY * this.parameters.columns;
     }
-    console.log('mouseOverIndex', mouseOverIndex);
     return mouseOverIndex;
   }
 }
 
 class VisualAux {
+
+  static setColorTheme(themeSelection) {
+    let colorOnCall, colorAvailable, colorPreviewingTask,
+      colorAfterCall, colorLoggedOut, colorBackground, backGroundIndex;
+    let tempColorTheme = [];
+
+    switch (themeSelection) {
+      case "user":
+        // Values from CSS color picker go here.
+        break;
+      case "random":
+        for (let i = 0; i < 6 * 4; i += 4) {
+          tempColorTheme[i] = 255 * Math.random();
+          tempColorTheme[i + 1] = 255 * Math.random();
+          tempColorTheme[i + 2] = 255 * Math.random();
+          tempColorTheme[i + 3] = 255;
+        }
+        break;
+      default:
+        colorBackground = [11, 10, 17, 255]; // Normally [0, 0, 0, 255]
+        colorOnCall = [243, 108, 82, 255];
+        colorAvailable = [63, 191, 177, 255];
+        colorPreviewingTask = [0, 110, 184, 255];
+        colorAfterCall = [255, 205, 52, 255];
+        colorLoggedOut = [11, 10, 17, 255]; // Normally [0, 48, 70, 255]
+        break;
+    }
+
+    if (themeSelection != "random") {
+      tempColorTheme = [].concat(colorLoggedOut, colorAfterCall, colorPreviewingTask,
+        colorAvailable, colorOnCall, colorBackground);
+    }
+
+    backGroundIndex = tempColorTheme.length - 1;
+    document.body.style.backgroundColor = "rgb(" + tempColorTheme[backGroundIndex - 3] + ","
+      + tempColorTheme[backGroundIndex - 2] + "," + tempColorTheme[backGroundIndex - 1] + ")";
+
+    // Normalize values for the shader.
+    for (let i = 0; i < tempColorTheme.length; i++) {
+      tempColorTheme[i] = tempColorTheme[i] / 255;
+    }
+    return tempColorTheme;
+  }
 
   static sineNoise(lowerBound, upperBound, timeScale, inputA, inputB) {
     let noiseTimer = performance.now() * timeScale;
@@ -594,6 +651,36 @@ class VisualAux {
     }
     tempArray.sort((a, b) => a + b);
     return tempArray;
+  }
+
+  static inverseStatusCode(tempCode, tempColorTheme) {
+    let tempColor;
+    let tempColorArray = [];
+
+    switch (tempCode) {
+      case 0:
+        tempColorArray = tempColorTheme.slice(20, 23);
+        break;
+      case 51:
+        tempColorArray = tempColorTheme.slice(0, 3);
+        break;
+      case 102:
+        tempColorArray = tempColorTheme.slice(4, 7);
+        break;
+      case 153:
+        tempColorArray = tempColorTheme.slice(8, 11);
+        break;
+      case 204:
+        tempColorArray = tempColorTheme.slice(12, 15);
+        break;
+      case 255:
+        tempColorArray = tempColorTheme.slice(16, 19);
+        break;
+    }
+    tempColor = "font-weight: bold; color: rgb(" + 255 * tempColorArray[0] + ","
+    + 255 * tempColorArray[1] + "," + 255 * tempColorArray[2] + ");";
+
+    return tempColor;
   }
 
   static textureStretch(tempWidth, tempHeight, tempScaleType) {
@@ -637,6 +724,11 @@ class VisualAux {
     return matrix;
   }
 
+  static constrain(lowerBound, upperBound, tempValue) {
+    let constrained = Math.min(Math.max(tempValue, lowerBound), upperBound);
+    return constrained;
+  }
+
   static processProbabilityArray(tempArray) {
     var rollIterations = null;
     var counter;
@@ -649,5 +741,10 @@ class VisualAux {
     return rollIterations;
   }
 }
+
+gridCanvas.addEventListener('mousemove', (e) => {
+  mouseX = e.offsetX;
+  mouseY = e.offsetY;
+});
 
 setup();
