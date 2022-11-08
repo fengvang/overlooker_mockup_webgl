@@ -34,26 +34,28 @@ twgl.setBuffersAndAttributes(gl, programInfoB, bufferInfo);
 
 function setup() {
   "use strict";
-  let tempLayout, layout;
+  let tempLayout, layout, updateRatio;
   let animRate = 0;
   let prevTime = 0;
   tempLayout = "growing"; // Change to test layouts.
 
   switch (tempLayout) {
     case "growing":
-      let startCount = 10;
+      let startCount = 100;
       let endCount = 100000;
       animRate = 1.5;
-      let joinAnimRate = animRate;
-      let joinPerTick = 1;
+      let joinAnimRate = animRate; // How long users must wait to join.
+      let joinPerTick = 1; // Don't move off 1 right now.
+      updateRatio = 0.015625;
       uniforms.u_colortheme = VisualAux.setColorTheme("random");
-      layout = new LayoutUsersJoin(startCount, endCount, joinAnimRate, joinPerTick);
+      layout = new LayoutUsersJoin(startCount, endCount, joinAnimRate, joinPerTick, updateRatio);
       break;
     default:
-      animRate = 3.0;
+      animRate = 3.0; // How fast the color transition finishes.
       let userCount = 10000;
+      updateRatio = 0.125 // The ratio of users that can receive a state update per tick.
       uniforms.u_colortheme = VisualAux.setColorTheme("random");
-      layout = new LayoutUsersStatic(userCount);
+      layout = new LayoutUsersStatic(userCount, updateRatio);
   }
 
   // Start draw loop:
@@ -138,24 +140,35 @@ class LayoutSimGrid {
 }
 
 class LayoutUsersStatic extends LayoutSimGrid {
-  constructor(tempUserCount) {
+  constructor(tempUserCount, updateRatio) {
     super(tempUserCount);
     let tickInterval = 25;
     this.userStateProbArray = VisualAux.createProbabilityArray(0.2, 0.05, Object.keys(this.userSim.stateCodes).length - 1);
 
     // Start the UserSim clock:
     this.clientClock = setInterval(() => {
-      var updatesPerTick = this.userSim.userArray.length / 8;
+      var updatesPerTick = this.userSim.userArray.length * updateRatio;
+      
       for (let i = 0; i < updatesPerTick; i++) {
-        var tempStateIndex = VisualAux.processProbabilityArray(this.userStateProbArray);
-        var stateCodes = this.userSim.stateCodes;
-        var tempState = Object.values(stateCodes)[tempStateIndex];
-        if (tempState == null) {
-          tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
-        }
         var lowerBound = 0;
-        var upperBound = this.userSim.userArray.length - 1;
-        this.userSim.setStateRandomUser(tempState, lowerBound, upperBound);
+        var upperBound = 0;
+
+        // Select a random index using distribution, if invalid use random directly:
+        var tempStateIndex = VisualAux.processProbabilityArray(this.userStateProbArray);
+        if (tempStateIndex == null) {
+          tempStateIndex = Math.floor(2.51 + 2.5 * Math.random());
+        }
+
+        var [stateName, stateCode] = Object.entries(this.userSim.stateCodes)[tempStateIndex]; // Use random index to get a stateCode.
+        
+        // Check to make sure there isn't only one user:
+        // BUG: desync after grid resize can cause this check to fail. Need callback/promise.
+        if (this.userSim.userArray.length == 1) {
+          upperBound = 1;
+        } else {
+          upperBound = this.userSim.userArray.length - 1;
+        }
+        this.userSim.setStateRandomUser(stateCode, stateName, lowerBound, upperBound);
       }
 
       if (this.userSim.stateUpdateQueue.length >= this.maxStateQueue) {
@@ -166,7 +179,7 @@ class LayoutUsersStatic extends LayoutSimGrid {
 }
 
 class LayoutUsersJoin extends LayoutSimGrid {
-  constructor(startCount, endCount, simAnimRate, joinPerTick) {
+  constructor(startCount, endCount, simAnimRate, joinPerTick, updateRatio) {
     super(startCount);
 
     // Priming clock loop:
@@ -178,26 +191,40 @@ class LayoutUsersJoin extends LayoutSimGrid {
 
     // State update clock:
     this.clientClock = setInterval(() => {
-      var updatesPerTick = this.userSim.userArray.length / 8;
+      var updatesPerTick = this.userSim.userArray.length * updateRatio;
       simDeltaTime = runTime - simPrevTime;
       simPrevTime = runTime;
 
       for (let i = 0; i < updatesPerTick; i++) {
-        var tempStateIndex = VisualAux.processProbabilityArray(this.userStateProbArray);
-        var stateCodes = this.userSim.stateCodes;
-        var tempState = Object.values(stateCodes)[tempStateIndex]; // Use random index to get a stateCode.
-        if (tempState == null) {
-          tempState = 51 * Math.floor(2.51 + 2.5 * Math.random());
-        }
         var lowerBound = 0;
-        var tempUpperBound = this.gridMain.parameters.columns * (this.gridMain.parameters.rows - 1);
-        var upperBound = VisualAux.constrain(0, this.userSim.userArray.length - 1, tempUpperBound);
-        this.userSim.setStateRandomUser(tempState, lowerBound, upperBound);
+        var upperBound = 0;
+        
+        // Select a random index using distribution, if invalid use random directly:
+        // BUG: desync after grid resize can cause this check to fail. Need callback/promise.
+        var tempStateIndex = VisualAux.processProbabilityArray(this.userStateProbArray);
+        if (tempStateIndex == null) {
+          tempStateIndex = Math.floor(2.51 + 2.5 * Math.random());
+        }
+
+        var [stateName, stateCode] = Object.entries(this.userSim.stateCodes)[tempStateIndex]; // Use random index to get a state.
+        
+        // Check to make sure it's safe to limit updates to above the lowest line:
+        if (this.userSim.userArray.length == 1) {
+          upperBound = 1;
+        }
+        else if (this.gridMain.parameters.rows == 1) {
+          upperBound = this.userSim.userArray.length - 1;
+        } else {
+          let tempUpperBound = this.gridMain.parameters.columns * (this.gridMain.parameters.rows - 1);
+          var upperBound = VisualAux.constrain(0, this.userSim.userArray.length - 1, tempUpperBound);
+        }
+        this.userSim.setStateRandomUser(stateCode, stateName, lowerBound, upperBound);
       }
 
       if (lastAnimationTime >= 1.0) {
         for (let i = 0; i < joinPerTick; i++) {
-          this.userSim.userJoin(this.userSim.stateCodes.available);
+          var [stateName, stateCode] = Object.entries(this.userSim.stateCodes)[3];
+          this.userSim.userJoin(stateCode, stateName);
         }
         lastAnimationTime = 0;
       } else {
@@ -257,20 +284,20 @@ class UserSimulator {
     }
   }
 
-  userJoin(initialState) {
-    let stateCode = initialState;
+  userJoin(initialState, tempStateName) {
     if (initialState == null) {
-      stateCode = this.stateCodes.neverInitialized;
+      [tempStateName, initialState] = Object.entries(this.stateCodes)[5];
     }
 
     this.userArray.push({
       userID: (Math.random() + 1).toString(36).substring(7),
-      currentState: stateCode,
+      currentState: initialState,
+      stateName: tempStateName,
       connectionTime: Math.floor(Date.now() * 0.001), // In epoch time.
       connectionStatus: "online",
     });
     let userIndex = this.userArray.length - 1;
-    this.pushStateChange(this.getTextureIndex(userIndex), stateCode);
+    this.pushStateChange(this.getTextureIndex(userIndex), initialState);
     this.stateChangeCounter++;
   }
 
@@ -281,14 +308,15 @@ class UserSimulator {
     this.userArray[tempIndex].currentState = offlineCode;
   }
 
-  setStateUser(userIndex, stateCode) {
+  setStateUser(userIndex, stateCode, stateName) {
     this.userArray[userIndex].currentState = stateCode;
+    this.userArray[userIndex].stateName = stateName;
     this.pushStateChange(this.getTextureIndex(userIndex), stateCode);
     this.stateChangeCounter++;
   }
 
   // Use random noise function to select a user/texel/dot:
-  setStateRandomUser(stateCode, lowerBound, upperBound) {
+  setStateRandomUser(stateCode, stateName, lowerBound, upperBound) {
     if (upperBound == null || lowerBound == null) {
       lowerBound = 0;
       upperBound = this.userArray.length - 1;
@@ -296,9 +324,7 @@ class UserSimulator {
     var offset = this.stateChangeCounter / upperBound;
     var userIndex = Math.floor(VisualAux.sineNoise(lowerBound, upperBound, 1, offset, offset));
 
-    if (this.userArray[userIndex].connectionStatus == "online") {
-      this.setStateUser(userIndex, stateCode);
-    }
+    this.setStateUser(userIndex, stateCode, stateName);
   }
 
   // Maps user ID/index onto the texture:
@@ -575,7 +601,7 @@ class UserGrid {
 
     if (inverseScanX < 0 || this.parameters.columns <= inverseScanX || inverseScanY < 0 || this.parameters.activeTiles <= tempMouseOverIndex) {
       mouseOverIndex = "UDF";
-    } else if (this.parameters.capacity < 500) {
+    } else if (this.parameters.capacity < 1000) {
       let originX = 0;
       let originY = 0;
       let dotRadius = this.parameters.tileSize * (1 - this.parameters.padding) / 2;
@@ -678,7 +704,7 @@ class VisualAux {
         break;
     }
     tempColor = "font-weight: bold; color: rgb(" + 255 * tempColorArray[0] + ","
-    + 255 * tempColorArray[1] + "," + 255 * tempColorArray[2] + ");";
+      + 255 * tempColorArray[1] + "," + 255 * tempColorArray[2] + ");";
 
     return tempColor;
   }
