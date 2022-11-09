@@ -760,18 +760,6 @@ class VisualAux {
     let constrained = Math.min(Math.max(tempValue, lowerBound), upperBound);
     return constrained;
   }
-
-  static processProbabilityArray(tempArray) {
-    var rollIterations = null;
-    var counter;
-    for (counter = 0; counter < tempArray.length; counter++) {
-      if (Math.random() < tempArray[counter]) {
-        rollIterations = counter;
-        break;
-      }
-    }
-    return rollIterations;
-  }
 }
 
 gridCanvas.addEventListener('mousemove', (e) => {
