@@ -45,24 +45,26 @@ function setup() {
         endCount: 50000,
         animRate: 1.5,
         joinAnimRate: 1.5, // Affects how long users must wait to join.
-        joinPerTick: 1,    // Don't move off 1 right now.
+        joinPerTick: 1,
         updateRatio: 0.015625,
         maxStateQueue: 500000,
         themeSelection: "random",
-        dotPadding: 0.0,
+        dotPadding: 0.15,
+        tilingSpanMode: "maxArea",
       }
       layout = new LayoutSimGrid(initBlock);
       break;
     default:
       initBlock = {
         simBehavior: "staticUsers",
-        tickInterval: 25,     // Time in millis between simulator ticks.
+        tickInterval: 25,          // Time in millis between simulator ticks.
         startCount: 10000,
         animRate: 3.0,
-        updateRatio: 0.125,   // The ratio of users that can receive a state update per tick.
-        maxStateQueue: 50000, // The max future state writes before a dequeue is forced.
+        updateRatio: 0.125,        // The ratio of users that can receive a state update per tick.
+        maxStateQueue: 500000,     // The max future state writes before a dequeue is forced.
         themeSelection: "random",
-        dotPadding: 0.0,
+        dotPadding: 0.15,
+        tilingSpanMode: "maxArea", // spanWidth, spanHeight, maxArea, maxTiles
       }
       layout = new LayoutSimGrid(initBlock);
   }
@@ -88,7 +90,7 @@ function setup() {
 class LayoutUserGrid {
   constructor(tempInitBlock) {
     const initBlock = tempInitBlock;
-    this.gridMain = new UserGrid(initBlock.startCount, gl.canvas.width, gl.canvas.height, initBlock.dotPadding, "maxArea");
+    this.gridMain = new UserGrid(initBlock.startCount, gl.canvas.width, gl.canvas.height, initBlock.dotPadding, initBlock.tilingSpanMode);
     this.userSim = new UserSimulator(initBlock.startCount);
     this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
     this.texMain.randomizeTimers();
@@ -108,8 +110,8 @@ class LayoutUserGrid {
     uniforms.u_gridparams = [this.texMain.texWidth, this.texMain.texHeight, this.gridMain.parameters.padding];
     uniforms.u_colortheme = this.layoutTheme.theme;
 
-    // spanHeight, spanWidth, stretch, preserve:
-    uniforms.u_matrix = VisualAux.textureStretch(this.texMain.texWidth, this.texMain.texHeight, "stretch");
+    // spanHeight, spanWidth, preserve, stretch:
+    uniforms.u_matrix = VisualAux.textureStretch(this.texMain.texWidth, this.texMain.texHeight, "preserve");
   }
 
   resize() {
@@ -137,12 +139,9 @@ class LayoutUserGrid {
   }
 
   resetGrid(startCount) {
-    let tempDotPadding = this.gridMain.parameters.padding;
-    this.gridMain = null;
-    this.texMain = null;
-    this.gridMain = new UserGrid(startCount, gl.canvas.width, gl.canvas.height, tempDotPadding, "maxArea");
-    this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
-    this.texMain.randomizeTimers();
+    let [dotPadding, spanMode] = [this.gridMain.parameters.padding, this.gridMain.parameters.spanMode];
+    [this.gridMain, this.userSim] = [null, null];
+    this.gridMain = new UserGrid(startCount, gl.canvas.width, gl.canvas.height, dotPadding, spanMode);
     this.userSim = new UserSimulator(startCount);
   }
 
@@ -188,18 +187,17 @@ class LayoutUserGrid {
 
   simSetUserAboveBotLine(tempUpdatesPerTick) {
     for (let i = 0; i < tempUpdatesPerTick; i++) {
-      var [lowerBound, upperBound] = [0, 0];
+      var [lowerIndex, upperIndex] = [0, 0];
       let stateObject = this.getRandomState();
 
       if (this.userSim.userArray.length == 1) {
-        upperBound = 1;
+        upperIndex = 1;
       } else if (this.gridMain.parameters.rows == 1) {
-        upperBound = this.userSim.userArray.length - 1;
+        upperIndex = this.userSim.userArray.length - 1;
       } else {
-        let tempUpperBound = this.gridMain.parameters.columns * (this.gridMain.parameters.rows - 1);
-        var upperBound = VisualAux.constrain(1, this.userSim.userArray.length - 1, tempUpperBound);
+        upperIndex = this.gridMain.parameters.columns * (this.gridMain.parameters.rows - 1);
       }
-      this.userSim.setStateRandomUser(stateObject.stateCode, stateObject.stateName, lowerBound, upperBound);
+      this.userSim.setStateRandomUser(stateObject.stateCode, stateObject.stateName, lowerIndex, upperIndex);
     }
   }
 
@@ -219,13 +217,9 @@ class LayoutUserGrid {
   }
 
   simUserJoin(joinPerTick) {
-    var stateCodes = this.userSim.stateCodes;
-    var tempLength = Object.keys(stateCodes).length;
     for (let i = 0; i < joinPerTick; i++) {
-      var tempStateIndex = Math.floor(Math.random() * (tempLength - 1.0));
-      tempStateIndex = VisualAux.constrain(1, 5, tempStateIndex);
-      var [tempStateName, tempStateCode] = Object.entries(stateCodes)[tempStateIndex];
-      this.userSim.userJoin(tempStateCode, tempStateName);
+      let stateObject = this.getRandomState();
+      this.userSim.userJoin(stateObject.stateCode, stateObject.stateName);
     }
   }
 }
@@ -235,7 +229,7 @@ class LayoutSimGrid extends LayoutUserGrid {
     super(tempInitBlock);
     const initBlock = tempInitBlock;
     let [lastAnimationTime, simDeltaTime, simPrevTime] = [0, 0, 0];
-    
+
     // State update clock:
     this.clientClock = setInterval(() => {
       var updatesPerTick = this.userSim.userArray.length * initBlock.updateRatio;
@@ -253,7 +247,7 @@ class LayoutSimGrid extends LayoutUserGrid {
           this.simUserJoin(initBlock.joinPerTick);
           lastAnimationTime = 0;
         } else {
-          lastAnimationTime += simDeltaTime * initBlock.animRate;
+          lastAnimationTime += simDeltaTime * initBlock.joinAnimRate;
         }
 
         // Reset grid once max user count has been reached.
@@ -269,7 +263,6 @@ class LayoutSimGrid extends LayoutUserGrid {
     }, initBlock.tickInterval);
   }
 }
-
 
 class UserSimulator {
   constructor(tempUserCount) {
@@ -736,7 +729,7 @@ class VisualAux {
         scaleX = 1;
         scaleY = canvasAspectRatio / textureAspectRatio;
         break;
-      case 'stretch':
+      case 'preserve':
         scaleY = 1;
         scaleX = textureAspectRatio / canvasAspectRatio;
         if (scaleX > 1) {
@@ -744,7 +737,7 @@ class VisualAux {
           scaleX = 1;
         }
         break;
-      case 'preserve':
+      case 'stretch':
         scaleY = 1;
         scaleX = textureAspectRatio / canvasAspectRatio;
         if (scaleX < 1) {
