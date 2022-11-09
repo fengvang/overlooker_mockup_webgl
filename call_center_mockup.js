@@ -42,7 +42,7 @@ function setup() {
         simBehavior: "addUsers",
         tickInterval: 25,
         startCount: 100,
-        endCount: 100000,
+        endCount: 50000,
         animRate: 1.5,
         joinAnimRate: 1.5, // Affects how long users must wait to join.
         joinPerTick: 1,    // Don't move off 1 right now.
@@ -61,7 +61,7 @@ function setup() {
         animRate: 3.0,
         updateRatio: 0.125,   // The ratio of users that can receive a state update per tick.
         maxStateQueue: 50000, // The max future state writes before a dequeue is forced.
-        themeSelection: "random",
+        themeSelection: "",
         dotPadding: 0.0,
       }
       layout = new LayoutSimGrid(initBlock);
@@ -176,7 +176,6 @@ class LayoutSimGrid {
     this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
     this.texMain.randomizeTimers();
     this.userSim = new UserSimulator(startCount);
-    lastAnimationTime = 0;
   }
 
   display(tempDeltaTime, tempAnimRate) {
