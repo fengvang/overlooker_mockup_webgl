@@ -85,7 +85,7 @@ function setup() {
   }
 }
 
-class LayoutSimGrid {
+class LayoutUserGrid {
   constructor(tempInitBlock) {
     const initBlock = tempInitBlock;
     this.gridMain = new UserGrid(initBlock.startCount, gl.canvas.width, gl.canvas.height, initBlock.dotPadding, "maxArea");
@@ -94,45 +94,12 @@ class LayoutSimGrid {
     this.texMain.randomizeTimers();
     this.layoutTheme = new ColorTheme(initBlock.themeSelection);
     this.userStateProbArray = VisualAux.createProbabilityArray(0.2, 0.05, Object.keys(this.userSim.stateCodes).length - 1);
-    let [lastAnimationTime, simDeltaTime, simPrevTime] = [0, 0, 0];
     this.mouseOver = { index: "uninit", user: 0, };
 
     // Mouse click listener:
     addEventListener('click', (event) => {
       this.mouseClick();
     });
-
-    // State update clock:
-    this.clientClock = setInterval(() => {
-      var updatesPerTick = this.userSim.userArray.length * initBlock.updateRatio;
-      simDeltaTime = runTime - simPrevTime;
-      simPrevTime = runTime;
-
-      if (initBlock.simBehavior == "addUsers") {
-        this.simSetUserAboveBotLine(updatesPerTick);
-      } else if (initBlock.simBehavior == "staticUsers") {
-        this.simSetAnyUser(updatesPerTick);
-      }
-
-      if (initBlock.simBehavior == "addUsers") {
-        if (lastAnimationTime >= 1.0) {
-          this.simUserJoin(initBlock.joinPerTick);
-          lastAnimationTime = 0;
-        } else {
-          lastAnimationTime += simDeltaTime * initBlock.animRate;
-        }
-
-        // Reset grid once max user count has been reached.
-        if (this.userSim.userArray.length > initBlock.endCount) {
-          this.resetGrid(initBlock.startCount);
-          lastAnimationTime = 0;
-        }
-      }
-
-      if (this.userSim.stateUpdateQueue.length >= initBlock.maxStateQueue) {
-        this.userSim.setStateChanges(this.texMain.texArray); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
-      }
-    }, initBlock.tickInterval);
   }
 
   updateUniforms() {
@@ -262,6 +229,47 @@ class LayoutSimGrid {
     }
   }
 }
+
+class LayoutSimGrid extends LayoutUserGrid {
+  constructor(tempInitBlock) {
+    super(tempInitBlock);
+    const initBlock = tempInitBlock;
+    let [lastAnimationTime, simDeltaTime, simPrevTime] = [0, 0, 0];
+    
+    // State update clock:
+    this.clientClock = setInterval(() => {
+      var updatesPerTick = this.userSim.userArray.length * initBlock.updateRatio;
+      simDeltaTime = runTime - simPrevTime;
+      simPrevTime = runTime;
+
+      if (initBlock.simBehavior == "addUsers") {
+        this.simSetUserAboveBotLine(updatesPerTick);
+      } else if (initBlock.simBehavior == "staticUsers") {
+        this.simSetAnyUser(updatesPerTick);
+      }
+
+      if (initBlock.simBehavior == "addUsers") {
+        if (lastAnimationTime >= 1.0) {
+          this.simUserJoin(initBlock.joinPerTick);
+          lastAnimationTime = 0;
+        } else {
+          lastAnimationTime += simDeltaTime * initBlock.animRate;
+        }
+
+        // Reset grid once max user count has been reached.
+        if (this.userSim.userArray.length > initBlock.endCount) {
+          this.resetGrid(initBlock.startCount);
+          lastAnimationTime = 0;
+        }
+      }
+
+      if (this.userSim.stateUpdateQueue.length >= initBlock.maxStateQueue) {
+        this.userSim.setStateChanges(this.texMain.texArray); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
+      }
+    }, initBlock.tickInterval);
+  }
+}
+
 
 class UserSimulator {
   constructor(tempUserCount) {
