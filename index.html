@@ -55,11 +55,11 @@
     vec4 _color = vec4(0.0);
     if (_code <= 0.0) {         
       if (u_colortheme[0].r + u_colortheme[0].g + u_colortheme[0].b < 1.5) {
-        _color = vec4(u_colortheme[0].xyz + vec3(0.15), 1.0);
+        _color = vec4(u_colortheme[0].rgb + vec3(0.15), 1.0);
       } else {
-        _color = vec4(u_colortheme[0].xyz - vec3(0.15), 1.0);
-      }                         // unInitialized
-      _color.xyz = clamp(_color.xyz, 0.0, 1.0); 
+        _color = vec4(u_colortheme[0].rgb - vec3(0.15), 1.0);
+      }                         // neverInitialized
+      _color.xyz = clamp(_color.rgb, 0.0, 1.0); 
     } else if (_code <= 0.2) {
       _color = u_colortheme[1]; // Available
     } else if (_code <= 0.4) {
@@ -81,7 +81,7 @@
     float t = tex_color.w;
     float s = clamp(t, 0.0, 1.0);
 
-    vec4 shaded = vec4(mix(start_color.xyz, end_color.xyz, s), 1.0);
+    vec4 shaded = vec4(mix(start_color.rgb, end_color.rgb, s), 1.0);
     gl_FragColor = shaded;
   }
 
@@ -114,7 +114,7 @@
     vec2 uv = v_texcoord.xy;
     uv.xy = fract(uv.xy * u_gridparams.xy);
 
-    gl_FragColor = vec4(mix(u_colortheme[0].xyz, tex_color.xyz, circle_dot(uv)), 1.0);
+    gl_FragColor = vec4(mix(u_colortheme[0].rgb, tex_color.rgb, circle_dot(uv)), 1.0);
   }
  
       </script>
