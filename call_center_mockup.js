@@ -56,12 +56,12 @@ function setup() {
     default:
       initBlock = {
         simBehavior: "staticUsers",
-        tickInterval: 25,
+        tickInterval: 25,     // Time in millis between simulator ticks.
         startCount: 10000,
         animRate: 3.0,
         updateRatio: 0.125,   // The ratio of users that can receive a state update per tick.
         maxStateQueue: 50000, // The max future state writes before a dequeue is forced.
-        themeSelection: "",
+        themeSelection: "random",
         dotPadding: 0.0,
       }
       layout = new LayoutSimGrid(initBlock);
@@ -121,11 +121,12 @@ class LayoutSimGrid {
         } else {
           lastAnimationTime += simDeltaTime * initBlock.animRate;
         }
-      }
 
-      // Reset grid once max user count has been reached.
-      if (this.userSim.userArray.length > initBlock.endCount) {
-        this.resetGrid(initBlock.startCount);
+        // Reset grid once max user count has been reached.
+        if (this.userSim.userArray.length > initBlock.endCount) {
+          this.resetGrid(initBlock.startCount);
+          lastAnimationTime = 0;
+        }
       }
 
       if (this.userSim.stateUpdateQueue.length >= initBlock.maxStateQueue) {
@@ -214,7 +215,7 @@ class LayoutSimGrid {
     };
 
     var [tempName, tempCode] = Object.entries(validCodes)[tempStateIndex]; // Use random index to get a state.
-    let stateObject = {stateCode: tempCode, stateName: tempName};
+    let stateObject = { stateCode: tempCode, stateName: tempName };
     return stateObject;
   }
 
