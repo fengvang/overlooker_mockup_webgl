@@ -21,7 +21,7 @@
       
     void main() {
       gl_Position = vec4(a_position, 1.0, 1.0);
-      v_texcoord = a_position.xy * 0.5 + 0.5;
+      v_texcoord = 0.5 * a_position.xy + 0.5;
     }
           </script>
     <script id="vertex_screen" type="notjs">
@@ -32,7 +32,6 @@
 
   uniform mat3 u_matrix;
   varying vec2 v_texcoord;
-  varying vec2 v_texcoord_data;
   
   void main() {
      gl_Position = vec4(u_matrix * vec3(a_position, 1.0), 1.0);
@@ -54,24 +53,23 @@
 
   vec4 colorCheck(in float _code) {
     vec4 _color = vec4(0.0);
-    if (_code <= 0.0) {
-      if (u_colortheme[5].x + u_colortheme[5].y + u_colortheme[5].z < 1.0) {
-        _color = u_colortheme[5] + vec4(0.15); // Uninit
+    if (_code <= 0.0) {         
+      if (u_colortheme[0].r + u_colortheme[0].g + u_colortheme[0].b < 1.5) {
+        _color = vec4(u_colortheme[0].xyz + vec3(0.15), 1.0);
       } else {
-        _color = u_colortheme[5] - vec4(0.1); // Uninit
-      }
-      _color.a = 1.0;
-      _color = clamp(_color, 0.0, 1.0);
+        _color = vec4(u_colortheme[0].xyz - vec3(0.15), 1.0);
+      }                         // unInitialized
+      _color.xyz = clamp(_color.xyz, 0.0, 1.0); 
     } else if (_code <= 0.2) {
-      _color = u_colortheme[0]; // OnCall
-    } else if (_code <= 0.4) {
       _color = u_colortheme[1]; // Available
-    } else if (_code <= 0.6) {
+    } else if (_code <= 0.4) {
       _color = u_colortheme[2]; // PreviewingTask
+    } else if (_code <= 0.6) {
+      _color = u_colortheme[3]; // OnCall
     } else if (_code <= 0.8) {
-      _color = u_colortheme[3]; // AfterCall
+      _color = u_colortheme[4]; // AfterCall
     } else {
-      _color = u_colortheme[4]; // LoggedOut
+      _color = u_colortheme[5]; // LoggedOut
     }
     return _color;
   }
@@ -98,18 +96,11 @@
   uniform vec3 u_gridparams;
   uniform vec4 u_colortheme[6];
   uniform sampler2D u_texture_color;
-  uniform sampler2D u_texture_data;
+  
   varying vec2 v_texcoord;
 
   float aa_factor = u_gridparams.y * 1.5 / u_resolution.y;
   float radius = u_gridparams.z / 2.0;
-
-  // Distance formula approach to drawing a circle:
-  float circle_dist(in vec2 _uv) { 
-    float d = length(_uv.xy * 2.0 - vec2(1.0));
-    float t = 1.0 - smoothstep(0.5 + aa_factor, 0.5 - aa_factor, d * 0.51);
-    return 1.0 - t;
-  }
 
   // Dot product approach to drawing a circle:
   float circle_dot(in vec2 _uv) {
@@ -119,19 +110,15 @@
   }
 
   void main() {
-    vec2 pixelCoords = gl_FragCoord.xy + vec2(0.5);
-    vec2 mapped = pixelCoords / u_gridparams.xy;
     vec4 tex_color = texture2D(u_texture_color, v_texcoord);
-
     vec2 uv = v_texcoord.xy;
-    uv.xy = fract(u_gridparams.xy * uv.xy); // Split screen into divisions.
+    uv.xy = fract(uv.xy * u_gridparams.xy);
 
-    gl_FragColor = vec4(mix(u_colortheme[5].xyz, tex_color.xyz, circle_dot(uv)), 1.0);
+    gl_FragColor = vec4(mix(u_colortheme[0].xyz, tex_color.xyz, circle_dot(uv)), 1.0);
   }
  
       </script>
   </canvas>
 </body>
 <script src="call_center_mockup.js"></script>
-
 </html>
