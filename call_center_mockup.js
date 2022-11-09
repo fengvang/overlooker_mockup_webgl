@@ -158,20 +158,17 @@ class LayoutUserGrid {
 
   getRandomState() {
     var tempStateIndex = null;
-    var counter;
-    for (counter = 0; counter < 5; counter++) {
-      if (Math.random() < this.userStateProbArray[counter]) {
-        tempStateIndex = counter;
+    for (let i = 0; i < 5; i++) {
+      if (Math.random() < this.userStateProbArray[i]) {
+        tempStateIndex = i;
         break;
       }
     }
-
-    // If nothing hit then just set it to a random index.
     if (tempStateIndex == null) {
       tempStateIndex = Math.floor(4 * Math.random()) + 1;
     }
 
-    // Ordered by which we want to be most likely.
+    // Ordered by most desired.
     let validCodes = {
       onCall: 153,
       available: 51,
@@ -180,7 +177,7 @@ class LayoutUserGrid {
       loggedOut: 255,
     };
 
-    var [tempName, tempCode] = Object.entries(validCodes)[tempStateIndex]; // Use random index to get a state.
+    var [tempName, tempCode] = Object.entries(validCodes)[tempStateIndex];
     let stateObject = { stateCode: tempCode, stateName: tempName };
     return stateObject;
   }
@@ -251,8 +248,8 @@ class LayoutSimGrid extends LayoutUserGrid {
           this.resetGrid(initBlock.startCount);
           lastAnimationTime = 0;
         }
-      
-      // The user count is fixed for this layout:
+
+        // The user count is fixed for this layout:
       } else if (initBlock.simBehavior == "staticUsers") {
         this.simSetAnyUser(updatesPerTick);
       }
@@ -279,7 +276,7 @@ class UserSimulator {
       loggedOut: 255,
     };
 
-    this.initUserArrayRandom(tempUserCount);
+    this.initUserArray(tempUserCount);
   }
 
   initUserArray(tempUserCount) {
@@ -288,57 +285,64 @@ class UserSimulator {
     }
   }
 
-  initUserArrayRandom(tempUserCount) {
-    let tempLength = Object.keys(this.stateCodes).length - 1;
-
-    for (let i = 0; i < tempUserCount; i++) {
-      let tempStateIndex = Math.floor(Math.random() * tempLength + 0.5);
-      var [tempStateName, tempStateCode] = Object.entries(this.stateCodes)[tempStateIndex];
-      this.userJoin(tempStateCode, tempStateName);
+  userJoin(tempState, tempStateName) {
+    if (tempState == null || tempStateName == null) {
+      [tempState, tempStateName] = this.getValidJoinState();
     }
-  }
-
-  userJoin(initialState, tempStateName) {
-    if (initialState == null) {
-      [tempStateName, initialState] = Object.entries(this.stateCodes)[1];
-    }
-
     this.userArray.push({
       userID: (Math.random() + 1).toString(36).substring(7),
-      currentState: initialState,
+      currentState: tempState,
       stateName: tempStateName,
       connectionTime: Math.floor(Date.now() * 0.001), // In epoch time.
       connectionStatus: "online",
     });
     let userIndex = this.userArray.length - 1;
-    this.pushStateChange(this.getTextureIndex(userIndex), initialState);
-    this.stateChangeCounter++;
+    this.pushStateChange(this.getTextureIndex(userIndex), tempState);
+  }
+
+  getValidJoinState() {
+    let tempStateIndex = Math.floor(3 * Math.random()) + 1;
+    let validCodes = {
+      onCall: 153,
+      available: 51,
+      previewingTask: 102,
+      afterCall: 204,
+    };
+    return Object.entries(validCodes)[tempStateIndex];
   }
 
   userLeave(tempIndex) {
-    let offlineCode = this.stateCodes.loggedOut;
-    this.userArray[tempIndex].connectionStatus = "offline";
-    this.pushStateChange(this.getTextureIndex(tempIndex), offlineCode);
-    this.userArray[tempIndex].currentState = offlineCode;
+    tempUpdates = {
+      currentState: 255,
+      stateName: "loggedOut",
+      connectionStatus: "offline",
+    };
+    Object.assign(this.userArray[tempIndex], tempUpdates);
+    this.pushStateChange(this.getTextureIndex(tempIndex), tempState);
   }
 
-  setStateUser(userIndex, stateCode, stateName) {
-    this.userArray[userIndex].currentState = stateCode;
-    this.userArray[userIndex].stateName = stateName;
-    this.pushStateChange(this.getTextureIndex(userIndex), stateCode);
+  setStateUser(tempIndex, tempStateCode, tempStateName) {
+    let tempStateUpdate = {
+      currentState: tempStateCode,
+      stateName: tempStateName,
+    };
+    Object.assign(this.userArray[tempIndex], tempStateUpdate);
+    this.pushStateChange(this.getTextureIndex(tempIndex), tempStateCode);
     this.stateChangeCounter++;
   }
 
-  // Use random noise function to select a user/texel/dot:
-  setStateRandomUser(stateCode, stateName, lowerBound, upperBound) {
-    if (upperBound == null || lowerBound == null) {
-      lowerBound = 0;
-      upperBound = this.userArray.length - 1;
-    }
-    var offset = this.stateChangeCounter / upperBound;
-    var userIndex = Math.floor(VisualAux.sineNoise(lowerBound, upperBound, 1, offset, offset));
+  // Use random noise function to select a user:
+  setStateRandomUser(tempStateCode, tempStateName, lowerBound, upperBound) {
+    var offset = 0;
 
-    this.setStateUser(userIndex, stateCode, stateName);
+    if (upperBound != 0) {
+      offset = this.stateChangeCounter / upperBound;
+    } else {
+      offset = 0;
+    }
+
+    var userIndex = Math.floor(VisualAux.sineNoise(lowerBound, upperBound, 1, offset, offset));
+    this.setStateUser(userIndex, tempStateCode, tempStateName);
   }
 
   // Maps user ID/index onto the texture:
@@ -346,10 +350,10 @@ class UserSimulator {
     return 4 * userArrayIndex;
   }
 
-  pushStateChange(tempIndex, tempCurrent) {
+  pushStateChange(tempIndex, tempState) {
     this.stateUpdateQueue.push({
       textureIndex: tempIndex,
-      currentState: tempCurrent,
+      currentState: tempState,
     });
   }
 
@@ -390,7 +394,7 @@ class UserSimulator {
   // No time right now. The idea is to compare states in the queue with
   // the same textureIndex and discard everything but the most recent.
   overwriteRedundantStates() {
-    this.stateUpdateQueue = []; // Draw doesn't run to clear the queue while minimized.
+    this.stateUpdateQueue = [];
   }
 }
 
