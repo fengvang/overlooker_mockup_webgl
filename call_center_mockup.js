@@ -236,13 +236,10 @@ class LayoutSimGrid extends LayoutUserGrid {
       simDeltaTime = runTime - simPrevTime;
       simPrevTime = runTime;
 
+      // Users join for this layout:
       if (initBlock.simBehavior == "addUsers") {
         this.simSetUserAboveBotLine(updatesPerTick);
-      } else if (initBlock.simBehavior == "staticUsers") {
-        this.simSetAnyUser(updatesPerTick);
-      }
 
-      if (initBlock.simBehavior == "addUsers") {
         if (lastAnimationTime >= 1.0) {
           this.simUserJoin(initBlock.joinPerTick);
           lastAnimationTime = 0;
@@ -250,11 +247,14 @@ class LayoutSimGrid extends LayoutUserGrid {
           lastAnimationTime += simDeltaTime * initBlock.joinAnimRate;
         }
 
-        // Reset grid once max user count has been reached.
         if (this.userSim.userArray.length > initBlock.endCount) {
           this.resetGrid(initBlock.startCount);
           lastAnimationTime = 0;
         }
+      
+      // The user count is fixed for this layout:
+      } else if (initBlock.simBehavior == "staticUsers") {
+        this.simSetAnyUser(updatesPerTick);
       }
 
       if (this.userSim.stateUpdateQueue.length >= initBlock.maxStateQueue) {
