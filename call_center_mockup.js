@@ -322,10 +322,21 @@ class UserSimulator {
   }
 
   setStateUser(tempIndex, tempStateCode, tempStateName) {
-    let tempStateUpdate = {
-      currentState: tempStateCode,
-      stateName: tempStateName,
-    };
+    let tempStateUpdate = 0;
+    if (tempStateCode == 255) {
+      tempStateUpdate = {
+        currentState: tempStateCode,
+        stateName: tempStateName,
+        connectionStatus: "offline",
+      };
+    } else {
+      tempStateUpdate = {
+        currentState: tempStateCode,
+        stateName: tempStateName,
+        connectionStatus: "online",
+      };
+    }
+
     Object.assign(this.userArray[tempIndex], tempStateUpdate);
     this.pushStateChange(this.getTextureIndex(tempIndex), tempStateCode);
     this.stateChangeCounter++;
