@@ -1,4 +1,5 @@
-var [mouseX, mouseY, runTime, deltaTime] = [0, 0, 0, 0];
+var [mouseX, mouseY, runTime, deltaTime, dotColorTimer] = [0, 0, 0, 0, 0, 0];
+var consoleBool = 0;
 
 // Initialize WebGL:
 const gridCanvas = document.getElementById("cgl");
@@ -21,7 +22,7 @@ const glArrays = {
 };
 
 const uniforms = {
-  u_time: 0, u_mouse: [0, 0,], u_timescale: 0,
+  u_time: 0, u_mouse: [0, 0,], u_interval: 0,
   u_resolution: [0, 0,], u_gridparams: [0, 0, 0,], u_colortheme: 0,
   u_texture_data: 0, u_texture_color: 0, u_matrix: 0,
 };
@@ -34,7 +35,7 @@ function setup() {
   let [layout, prevTime, initBlock] = [0, 0, 0];
 
   // Set test layout here:
-  let tempLayout = "growing";
+  let tempLayout = "";
 
   switch (tempLayout) {
     case "growing":
@@ -59,31 +60,36 @@ function setup() {
         simBehavior: "staticUsers",
         tickInterval: 25,          // Time in millis between simulator ticks.
         startCount: 10000,
-        animRate: 3.0,
+        animRate: 10, // 20
         updateRatio: 0.125,        // The ratio of users that can receive a state update per tick.
         maxStateQueue: 500000,     // The max future state writes before a dequeue is forced.
         themeSelection: "random",
-        dotPadding: 0.15,
+        dotPadding: 0.0,
         tilingSpanMode: "maxArea", // spanWidth, spanHeight, maxArea, maxTiles
       }
       layout = new LayoutSimGrid(initBlock);
   }
+  uniforms.u_interval = initBlock.animRate;
   layout.updateUniforms();
   requestAnimationFrame(render); // Start draw loop.
 
-  // Draw loop:
   function render(time) {
-    runTime = time * 0.001;
-    deltaTime = runTime - prevTime;
-    prevTime = runTime;
+    timers(time);
 
-    // Resize if needed.
     if (twgl.resizeCanvasToDisplaySize(gl.canvas)) {
       layout.resize();
     }
 
-    layout.display(initBlock.animRate, deltaTime);
+    layout.display(initBlock.animRate);
     requestAnimationFrame(render); // Repeat loop.
+  }
+
+  function timers(time) {
+    runTime = time * 0.001;
+    dotColorTimer = time * 0.02;
+    deltaTime = runTime - prevTime;
+    prevTime = runTime;
+    uniforms.u_time = (time * 0.02) % 255;
   }
 }
 
@@ -106,7 +112,6 @@ class LayoutUserGrid {
 
   updateUniforms() {
     uniforms.u_resolution = [gl.canvas.width, gl.canvas.height];
-    uniforms.u_timescale = 3.0;
     uniforms.u_gridparams = [this.texMain.texWidth, this.texMain.texHeight, this.gridMain.parameters.padding];
     uniforms.u_colortheme = this.layoutTheme.theme;
 
@@ -145,29 +150,28 @@ class LayoutUserGrid {
     this.userSim = new UserSimulator(startCount);
   }
 
-  display(tempDeltaTime, tempAnimRate) {
+  display(tempAnimRate) {
     if (this.userSim.userArray.length > this.gridMain.parameters.activeTiles) {
       let addCount = this.userSim.userArray.length - this.gridMain.parameters.activeTiles;
       this.addColumnsRows(addCount);
     }
-    this.userSim.setStateChanges(this.texMain.texArray);
     this.texMain.updateTexture();
-    this.texMain.updateAnimations(tempDeltaTime, tempAnimRate);
-    this.texMain.display();
+    this.userSim.setStateChanges(this.texMain.texArray);
+    this.texMain.updateAnimations(tempAnimRate);
+    this.texMain.display(tempAnimRate);
   }
 
   getRandomState() {
     var tempStateIndex = null;
     for (let i = 0; i < 5; i++) {
-      if (Math.random() < this.userStateProbArray[i]) {
+      if (VisualAux.randomFast() < this.userStateProbArray[i]) {
         tempStateIndex = i;
         break;
       }
     }
     if (tempStateIndex == null) {
-      tempStateIndex = Math.floor(4 * Math.random()) + 1;
+      tempStateIndex = (4 * VisualAux.randomFast() + 1) >> 0; // float >> 0 is ~Math.floor.
     }
-
     // Ordered by most desired.
     let validCodes = {
       onCall: 153,
@@ -178,7 +182,7 @@ class LayoutUserGrid {
     };
 
     var [tempName, tempCode] = Object.entries(validCodes)[tempStateIndex];
-    let stateObject = { stateCode: tempCode, stateName: tempName };
+    var stateObject = { stateCode: tempCode, stateName: tempName };
     return stateObject;
   }
 
@@ -201,7 +205,7 @@ class LayoutUserGrid {
   simSetAnyUser(tempUpdatesPerTick) {
     for (let i = 0; i < tempUpdatesPerTick; i++) {
       var [lowerBound, upperBound] = [0, 0];
-      let stateObject = this.getRandomState();
+      var stateObject = this.getRandomState();
 
       // Check to make sure there isn't only one user:
       if (this.userSim.userArray.length == 1) {
@@ -254,7 +258,7 @@ class LayoutSimGrid extends LayoutUserGrid {
         this.simSetAnyUser(updatesPerTick);
       }
 
-      if (this.userSim.stateUpdateQueue.length >= initBlock.maxStateQueue) {
+      if (this.userSim.stateQueueCounter >= initBlock.maxStateQueue) {
         this.userSim.setStateChanges(this.texMain.texArray); // The draw loop doesn't run while minimized, so use the clock to dequeue instead.
       }
     }, initBlock.tickInterval);
@@ -264,7 +268,8 @@ class LayoutSimGrid extends LayoutUserGrid {
 class UserSimulator {
   constructor(tempUserCount) {
     this.userArray = [];
-    this.stateUpdateQueue = [];
+    this.stateQueueCounter = 0;
+    this.stateQueueArray = new Uint32Array(2048 * 2048 * 2);
     this.stateChangeCounter = 0;
 
     this.stateCodes = {
@@ -312,32 +317,21 @@ class UserSimulator {
   }
 
   userLeave(tempIndex) {
-    tempUpdates = {
-      currentState: 255,
-      stateName: "loggedOut",
-      connectionStatus: "offline",
-    };
-    Object.assign(this.userArray[tempIndex], tempUpdates);
+    this.userArray[tempIndex].currentState = 255;
+    this.userArray[tempIndex].stateName = "loggedOut";
+    this.userArray[tempIndex].connectionStatus = "offline";
     this.pushStateChange(this.getTextureIndex(tempIndex), tempState);
   }
 
   setStateUser(tempIndex, tempStateCode, tempStateName) {
-    let tempStateUpdate = 0;
     if (tempStateCode == 255) {
-      tempStateUpdate = {
-        currentState: tempStateCode,
-        stateName: tempStateName,
-        connectionStatus: "offline",
-      };
+      this.userArray[tempIndex].connectionStatus = "offline";
     } else {
-      tempStateUpdate = {
-        currentState: tempStateCode,
-        stateName: tempStateName,
-        connectionStatus: "online",
-      };
+      this.userArray[tempIndex].connectionStatus = "online";
     }
+    this.userArray[tempIndex].currentState = tempStateCode;
+    this.userArray[tempIndex].stateName = tempStateName;
 
-    Object.assign(this.userArray[tempIndex], tempStateUpdate);
     this.pushStateChange(this.getTextureIndex(tempIndex), tempStateCode);
     this.stateChangeCounter++;
   }
@@ -362,50 +356,27 @@ class UserSimulator {
   }
 
   pushStateChange(tempIndex, tempState) {
-    this.stateUpdateQueue.push({
-      textureIndex: tempIndex,
-      currentState: tempState,
-    });
+    this.stateQueueArray[this.stateQueueCounter] = tempIndex;
+    this.stateQueueArray[this.stateQueueCounter + 1] = tempState;
+    this.stateQueueCounter += 2;
   }
 
-  // Javascript Space->Shader Space:
-  // UInt8Array(0...255)->vec4(0.0...1.0)
-  // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
-  // = {startColor, endColor, buffColor, Timer}
-  // TODO: implement w/ single channel via bit packing.
   setStateChanges(tempTexArray) {
-    var j, tempState, tempTimer;
-    for (let i = 0; i < this.stateUpdateQueue.length; i++) {
-      j = this.stateUpdateQueue[i].textureIndex;
-      tempState = this.stateUpdateQueue[i].currentState;
-      tempTimer = tempTexArray[j + 3];
-      switch (tempTimer) {
-        case 0:
-          // Animation not started.
-          if (tempTexArray[j] != 0 && tempTexArray[j + 1] != 0) {
-            tempTexArray[j + 1] = tempState;           // newColor->endColor.
-            tempTexArray[j + 2] = 0;                   // 0->buffColor.
-          }
-          break;
-        case 255:
-          // Animation finished.
-          tempTexArray[j + 0] = tempTexArray[j + 1]; // endColor->startColor.
-          tempTexArray[j + 1] = tempState;           // newColor->endColor.
-          tempTexArray[j + 2] = 0;                   // 0->buffColor.
-          tempTexArray[j + 3] = 0;                   // 0->Timer.
-          break;
-        default:
-          // Animation ongoing.
-          tempTexArray[j + 2] = tempState;           // newColor->buffColor. 
+    var [j, newColor] = [0, 0];
+    for (let i = 0; i < this.stateQueueCounter - 1; i += 2) {
+      j = this.stateQueueArray[i];
+      newColor = this.stateQueueArray[i + 1];
+      tempTexArray[j + 2] = newColor;
+    }
+    this.stateQueueCounter = 0;
+  }
+
+  collapseNewStateArray() {
+    for (let i = 0; i < this.stateQueueCounter - 1; i++) {
+      if (texIndex > prevTexIndex) {
+        maxTexIndex == texIndex;
       }
     }
-    this.stateUpdateQueue = [];
-  }
-
-  // No time right now. The idea is to compare states in the queue with
-  // the same textureIndex and discard everything but the most recent.
-  overwriteRedundantStates() {
-    this.stateUpdateQueue = [];
   }
 }
 
@@ -413,7 +384,8 @@ class DataTexture {
   constructor(tempWidth, tempHeight) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-    this.texArray = new Uint8Array(tempWidth * tempHeight * 4 + 4);
+    this.texBuffer = new ArrayBuffer(2048 * 2048 * 4);
+    this.texArray = new Uint8Array(this.texBuffer, 0, tempWidth * tempHeight * 4);
     this.colorTexture = this.createTexture(tempWidth, tempHeight);
     this.dataTexture = this.createTexture(tempWidth, tempHeight);
     this.initFramebuffer();
@@ -447,10 +419,16 @@ class DataTexture {
   }
 
   randomizeTimers() {
+
+  }
+
+  /*
+  randomizeTimers() {
     for (let i = 0; i < this.texArray.length; i += 4) {
       this.texArray[i + 3] = Math.floor(255 * Math.random());
     }
   }
+  */
 
   updateTexture() {
     let options = {
@@ -482,37 +460,47 @@ class DataTexture {
     twgl.drawBufferInfo(gl, bufferInfo);
   }
 
-  // Resizes the texArray:
-  // Sets a new end point for texArray if the texture shrinks.
-  // Copies values using an ArrayBuffer if the texture grows. 
   updateTextureDimensions(tempWidth, tempHeight) {
-    var tempArrayLength = tempWidth * tempHeight * 4 + 4;
+    var tempArrayLength = tempWidth * tempHeight * 4;
     if (this.texArray.length > tempArrayLength) {
-      this.texArray = this.texArray.subarray(0, tempArrayLength);
+      this.texArray.fill(0, this.texArray.length - 1, tempArrayLength);
+      this.texArray = new Uint8Array(this.texBuffer, 0, tempArrayLength);
     } else {
-      let tempBuffer = new ArrayBuffer(tempArrayLength);
-      new Uint8Array(tempBuffer).set(new Uint8Array(this.texArray));
-      this.texArray = new Uint8Array(tempBuffer);
+      this.texArray = new Uint8Array(this.texBuffer, 0, tempArrayLength);
     }
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
   }
 
-  // Increments the timer and pops buffColor:
-  // Javascript Space->Shader Space:
-  // {UI8[0], UI8[1], UI8[2], UI8[3]}->{vec4.r, vec4.g, vec4.b, vec4.a} = 
-  // = {startColor, endColor, buffColor, Timer}
-  updateAnimations(tempDeltaTime, tempAnimRate) {
+
+  updateAnimations(animLength) {
+    var [buffColor, animTimer, rollingTimer] = [0, 0, 0];
+
+    let firstCheck = this.texArray[0] + this.texArray[1] + this.texArray[2]
+    + this.texArray[3];
+    if (firstCheck == 0) {
+      this.texArray[0] == 51;
+      for (let i = 0; i < this.texArray.length; i +=4 ) {
+        let offsetTimers = rollingTimer + (VisualAux.randomFast() * animLength >> 0);
+        this.texArray[i + 3] = (offsetTimers) % 255;
+      }
+    }
+
     for (let i = 0; i < this.texArray.length; i += 4) {
-      // Animation has completed.
-      if (this.texArray[i + 2] != 0 && this.texArray[i + 3] >= 255) {
-        this.texArray[i] = this.texArray[i + 1];     // endColor->startColor.
-        this.texArray[i + 1] = this.texArray[i + 2]; // buffColor->endColor.
-        this.texArray[i + 2] = 0;                    // 0->buffColor.
-        this.texArray[i + 3] = 0;                    // 0->timer.
-      } else {
-        this.texArray[i + 3] = 255 * Math.min(Math.max(tempDeltaTime * tempAnimRate
-          + this.texArray[i + 3] / 255, 0), 1.0);
+      buffColor = this.texArray[i + 2];
+      animTimer = this.texArray[i + 3];
+      rollingTimer = (dotColorTimer % 255) >> 0;
+      if (rollingTimer == animTimer) {
+        if ((this.texArray[i] == this.texArray[i + 1]) && buffColor == 0) {
+          this.texArray[i] = this.texArray[i + 1];
+        } else if (buffColor != 0) {
+          this.texArray[i] = this.texArray[i + 1];
+          this.texArray[i + 1] = buffColor;
+          this.texArray[i + 2] = 0;
+        } else {
+          this.texArray[i] = this.texArray[i + 1];
+        }
+        this.texArray[i + 3] = (rollingTimer + animLength) % 255;
       }
     }
   }
@@ -715,11 +703,43 @@ class ColorTheme {
 }
 
 class VisualAux {
+  constructor() {
+    this.sineArray = new Array(360);
+    var tempAangle = 0
+    for (var i = 0; i < 0xfff; i++) {
+      angle = Math.floor(Math.random() * 360);
+      test = 200 * sineArray[angle];
+    }
 
+    this.randGenState = performance.now();
+  }
+
+  // mulberry32:
+  static randomFast() {
+    this.randGenState |= 0; this.randGenState = this.randGenState + 0x6D2B79F5 | 0;
+    var t = Math.imul(this.randGenState ^ this.randGenState >>> 15, 1 | this.randGenState);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+
+  sineNoiseLookup(timeScale, inputA, inputB) {
+    let noiseTimer = performance.now() * timeScale;
+    return Math.min(Math.max(upperBound * (0.5 + 0.255 * this.sineArray[Math.floor(2 * inputA * noiseTimer)] + this.sineArray[Math.floor(Math.PI * inputB * noiseTimer)]), lowerBound), upperBound);
+  }
+
+  static sineNoise(lowerBound, upperBound, timeScale, inputA, inputB) {
+    let noiseTimer = runTime * 1000 * timeScale;
+    let randomNoise = (0.25 * (2 + Math.sin(2 * inputA * noiseTimer) + Math.sin(Math.PI * inputB * noiseTimer))
+      * (upperBound - lowerBound + 1) + lowerBound) >> 0;
+    return randomNoise;
+  }
+
+  /*
   static sineNoise(lowerBound, upperBound, timeScale, inputA, inputB) {
     let noiseTimer = performance.now() * timeScale;
     return Math.min(Math.max(upperBound * (0.5 + 0.255 * (Math.sin(2 * inputA * noiseTimer) + Math.sin(Math.PI * inputB * noiseTimer))), lowerBound), upperBound);
   }
+  */
 
   static createProbabilityArray(mean, deviation, arrayLength) {
     let tempArray = [];
