@@ -475,10 +475,10 @@ class DataTexture {
 
   updateAnimations(animLength) {
     var [buffColor, animTimer, rollingTimer] = [0, 0, 0];
+    rollingTimer = (dotColorTimer % 255) >> 0;
 
-    let firstCheck = this.texArray[0] + this.texArray[1] + this.texArray[2]
-    + this.texArray[3];
-    if (firstCheck == 0) {
+    // Randomize the dot timers after init or focus loss to avoid animation stall:
+    if (deltaTime - runTime == 0 || deltaTime > 0.5) {
       this.texArray[0] == 51;
       for (let i = 0; i < this.texArray.length; i +=4 ) {
         let offsetTimers = rollingTimer + (VisualAux.randomFast() * animLength >> 0);
@@ -489,17 +489,21 @@ class DataTexture {
     for (let i = 0; i < this.texArray.length; i += 4) {
       buffColor = this.texArray[i + 2];
       animTimer = this.texArray[i + 3];
-      rollingTimer = (dotColorTimer % 255) >> 0;
+      // The rollingTimer has caught up with the forward position:
       if (rollingTimer == animTimer) {
+      // If there's nothing in the buffer then let ending color be the new starting color.
         if ((this.texArray[i] == this.texArray[i + 1]) && buffColor == 0) {
           this.texArray[i] = this.texArray[i + 1];
+      // If there is something in the buffer then do a downward swap and clear the buffer; 
         } else if (buffColor != 0) {
           this.texArray[i] = this.texArray[i + 1];
           this.texArray[i + 1] = buffColor;
           this.texArray[i + 2] = 0;
+      // If there's nothing to do then stop animations by setting the start color and end color to the same value.
         } else {
           this.texArray[i] = this.texArray[i + 1];
         }
+      // Create a new forward position for rollingTimer to catch up to.
         this.texArray[i + 3] = (rollingTimer + animLength) % 255;
       }
     }
