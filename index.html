@@ -46,14 +46,14 @@
   uniform float u_time;
   uniform float u_interval;
   uniform vec3 u_gridparams;
-  uniform vec4 u_colortheme[6];
+  uniform vec3 u_colortheme[6];
   uniform sampler2D u_texture_data;
 
   varying vec2 v_texcoord;
 
   vec4 colorCheck(in float _code) {
     vec4 _color = vec4(0.0);
-    if (_code <= 0.0) {         
+    if (_code == 0.0) {         
       if (u_colortheme[0].r + u_colortheme[0].g + u_colortheme[0].b < 1.5) {
         _color = vec4(u_colortheme[0].rgb + vec3(0.15), 1.0);
       } else {
@@ -61,16 +61,17 @@
       }                         // neverInitialized
       _color.xyz = clamp(_color.rgb, 0.0, 1.0); 
     } else if (_code <= 0.2) {
-      _color = u_colortheme[1]; // Available
+      _color.xyz = u_colortheme[1]; // Available
     } else if (_code <= 0.4) {
-      _color = u_colortheme[2]; // PreviewingTask
+      _color.xyz = u_colortheme[2]; // PreviewingTask
     } else if (_code <= 0.6) {
-      _color = u_colortheme[3]; // OnCall
+      _color.xyz = u_colortheme[3]; // OnCall
     } else if (_code <= 0.8) {
-      _color = u_colortheme[4]; // AfterCall
+      _color.xyz = u_colortheme[4]; // AfterCall
     } else {
-      _color = u_colortheme[5]; // LoggedOut
+      _color.xyz = u_colortheme[5]; // LoggedOut
     }
+    _color.w = 1.0;
     return _color;
   }
 
@@ -95,7 +96,7 @@
     //
     // If the timer is chasing behind the timestamp and won't loop before catching it,
     // then the startpoint is simply the timestamp - the length of the animation interval.
-    if (timer_dot + u_interval <= 255.0 && timer_dot < timestamp) {      
+    if (timer_dot + u_interval <= 255.0 && timer_dot >= u_interval) {      
       start = timestamp - u_interval;
       end = timestamp;
     // If the timer is going to loop then project the endpoint beyond the right side of the
@@ -124,7 +125,7 @@
   uniform float u_time;
   uniform float u_interval;
   uniform vec3 u_gridparams;
-  uniform vec4 u_colortheme[6];
+  uniform vec3 u_colortheme[6];
   uniform sampler2D u_texture_color;
   
   varying vec2 v_texcoord;
