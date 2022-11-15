@@ -96,19 +96,14 @@
     //
     // If the timer is chasing behind the timestamp and won't loop before catching it,
     // then the startpoint is simply the timestamp - the length of the animation interval.
-    if (timer_dot + u_interval <= 255.0 && timer_dot >= u_interval) {      
+    if (timer_dot <= 255.0 - u_interval + timestamp) {      
       start = timestamp - u_interval;
       end = timestamp;
     // If the timer is going to loop then project the endpoint beyond the right side of the
     // timer number line.   
-    } else if (timer_dot > 255.0 - (u_interval - timestamp)) {
+    } else {
       start = 255.0 - (u_interval - timestamp);
       end = 255.0 + timestamp;
-    // If the timer has already looped then project the startpoint before the left side of the
-    // timer number line.
-    } else {
-      start = timestamp - u_interval;
-      end = timestamp;
     }
     mix_amount = mapTime(start, end, timer_dot);
     shaded = vec4(mix(start_color.rgb, end_color.rgb, mix_amount), 1.0);
