@@ -126,7 +126,6 @@ class LayoutUserGrid {
     runTime = time * 0.001;
     dotColorTimer = time * 0.51;
     deltaTime = runTime - this.prevTime;
-    //console.log(dotColorTimer)
 
     if (twgl.resizeCanvasToDisplaySize(gl.canvas)) {
       this.gridMain.resize(gl.canvas.width, gl.canvas.height);
@@ -368,7 +367,7 @@ class UserSimulator {
       if (this.stateQueueArray[i + 2] == 1) {
         let startTimestamp = i % 256;
         tempTexArray[j + 3] = (startTimestamp % 256) >> 0;
-        tempTimestampArray[j] = startTimestamp;
+        tempTimestampArray[j] = (startTimestamp + dotColorTimer) >> 0;
       }
     }
     // The end point is reset without clearing values in stateQueueArray.
@@ -481,7 +480,7 @@ class DataTexture {
       for (let i = 0; i < this.texArray.length - 4; i += 4) {
         let offset = animIndex % 256;
         this.texArray[i + 3] = ((dotColorTimer + offset) % 256) >> 0;
-        this.animArray[animIndex] = dotColorTimer + offset;
+        this.animArray[animIndex] = (dotColorTimer + offset) >> 0;
         animIndex++;
       }
     } else {
@@ -489,24 +488,22 @@ class DataTexture {
       for (let i = 0; i < this.texArray.length; i += 4) {
         timestamp = this.animArray[animIndex];
         buffColor = this.texArray[i + 2];
-        // The rollingTimer has caught up with the forward position:
-        if (dotColorTimer >= timestamp) {
-
+        if (dotColorTimer > timestamp) {
           // If there's something in the buffer, then perform a downward swap and set it to zero.
           if (buffColor != 254) {
             this.texArray[i] = this.texArray[i + 1];
             this.texArray[i + 1] = buffColor;
             this.texArray[i + 2] = 254; // Arbitrary non-color flag.
-            this.texArray[i + 3] = ((dotColorTimer + animInterval) % 256) >> 0;
-            this.animArray[animIndex] = dotColorTimer + animInterval;
+            this.texArray[i + 3] = ((dotColorTimer + animInterval) >> 0) % 256;
+            this.animArray[animIndex] = (dotColorTimer + animInterval) >> 0;
           // If there's nothing to do then stop animations by setting the start color and end color to the same value.
           } else {
             this.texArray[i] = this.texArray[i + 1];
           }
           // Create a new forward position for rollingTimer to catch up to.
           var timestampNew = dotColorTimer + animInterval;
-          this.texArray[i + 3] = (timestampNew % 256) >> 0;
-          this.animArray[animIndex] = timestampNew;
+          this.texArray[i + 3] = (timestampNew >> 0) % 256;
+          this.animArray[animIndex] = timestampNew >> 0;
         }
         animIndex++;
       }
@@ -660,7 +657,7 @@ class ColorTheme {
         // Values from CSS color picker go here.
         break;
       case "random":
-        tempColorTheme = VisualAux.randomThemeArray(Math.random(), 6);
+        tempColorTheme = this.randomThemeArray(Math.random(), 6);
         break;
       default:
         // Theme from the client's slide:
@@ -688,6 +685,30 @@ class ColorTheme {
     return tempColorTheme;
   }
 
+  randomThemeArray(centerPoint, totalColors) {
+    let tempColorArray = [];
+
+    function pushColor(h, s, v) {
+      h = Math.abs(Math.sin(0.5 * Math.PI * h)), s = Math.abs(Math.sin(0.5 * Math.PI * s)),
+        v = Math.abs(Math.sin(0.5 * Math.PI * v));
+      let tempBuffer = [].concat(...VisualAux.HSVtoRGB(h, s, v));
+      tempColorArray.push(tempBuffer[0], tempBuffer[1], tempBuffer[2]);
+    }
+
+    function tunedValue(mean, deviation) {
+      return mean + deviation * Math.sin(2 * Math.PI * Math.random());
+    }
+
+    let hueSpread = Math.random();
+    for (let i = 0; i < totalColors; i++) {
+      let randomHue = centerPoint + Math.sin(((2 * Math.PI / totalColors) * (i + hueSpread)));
+      let randomSat = 0.6 + 0.4 * Math.sin(((2 * Math.PI / totalColors) * i));
+      let randomVal = tunedValue(0.1 + i / totalColors, 0.1);
+      pushColor(randomHue, randomSat, randomVal);
+    }
+    return tempColorArray;
+  }
+
   inverseStatusCode(tempCode) {
     let tempColor;
     let tempColorArray = [];
@@ -703,6 +724,7 @@ class ColorTheme {
 
     return tempColor;
   }
+
 }
 
 class VisualAux {
@@ -799,30 +821,6 @@ class VisualAux {
   static constrain(lowerBound, upperBound, tempValue) {
     let constrained = Math.min(Math.max(tempValue, lowerBound), upperBound);
     return constrained;
-  }
-
-  static randomThemeArray(centerPoint, totalColors) {
-    let tempColorArray = [];
-
-    function pushColor(h, s, v) {
-      h = Math.abs(Math.sin(0.5 * Math.PI * h)), s = Math.abs(Math.sin(0.5 * Math.PI * s)),
-        v = Math.abs(Math.sin(0.5 * Math.PI * v));
-      let tempBuffer = [].concat(...VisualAux.HSVtoRGB(h, s, v));
-      tempColorArray.push(tempBuffer[0], tempBuffer[1], tempBuffer[2]);
-    }
-
-    function tunedValue(mean, deviation) {
-      return mean + deviation * Math.sin(2 * Math.PI * Math.random());
-    }
-
-    let hueSpread = Math.random();
-    for (let i = 0; i < totalColors; i++) {
-      let randomHue = centerPoint +  Math.sin(((2 * Math.PI / totalColors) * (i + hueSpread)));
-      let randomSat = 0.6 + 0.4 * Math.sin(((2 * Math.PI / totalColors) * i));
-      let randomVal = tunedValue(0.1 + i / totalColors, 0.1);
-      pushColor(randomHue, randomSat, randomVal);
-    }
-    return tempColorArray;
   }
 
   static HSVtoRGB(h, s, v) {
