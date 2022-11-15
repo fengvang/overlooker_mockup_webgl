@@ -64,7 +64,7 @@ function setup() {
         joinPerTick: 1,
         updateRatio: 0.125,
         maxStateQueue: 500000,
-        themeSelection: "random",
+        themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
       }
@@ -78,7 +78,7 @@ function setup() {
         animInterval: 255,
         updateRatio: 0.125,
         maxStateQueue: 500000,
-        themeSelection: "random",
+        themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
       }
@@ -124,8 +124,9 @@ class LayoutUserGrid {
   render = (time) => {
     // Update the animation and persistence timers.
     runTime = time * 0.001;
-    dotColorTimer = time * 0.51;
+    dotColorTimer = time * 0.51 ;
     deltaTime = runTime - this.prevTime;
+    let shaderTime = dotColorTimer % 256;
 
     if (twgl.resizeCanvasToDisplaySize(gl.canvas)) {
       this.gridMain.resize(gl.canvas.width, gl.canvas.height);
@@ -134,7 +135,7 @@ class LayoutUserGrid {
 
     // These are the parameters that are passed into the shader to do things like color selection
     // and animation timing. 
-    uniforms.u_time = dotColorTimer % 256;
+    uniforms.u_time = shaderTime;
     uniforms.u_resolution = [gl.canvas.width, gl.canvas.height];
     uniforms.u_gridparams = [this.texMain.texWidth, this.texMain.texHeight, this.gridMain.parameters.padding];
     uniforms.u_colortheme = this.layoutTheme.theme;
@@ -365,7 +366,7 @@ class UserSimulator {
 
       // Set the user's timestamp if they're new.
       if (this.stateQueueArray[i + 2] == 1) {
-        let startTimestamp = i % 256;
+        let startTimestamp = 256 * gTools.randomFast();
         tempTexArray[j + 3] = (startTimestamp % 256) >> 0;
         tempTimestampArray[j] = (startTimestamp + dotColorTimer) >> 0;
       }
@@ -478,7 +479,7 @@ class DataTexture {
     if (deltaTime > 0.2) {
       animIndex = 0;
       for (let i = 0; i < this.texArray.length - 4; i += 4) {
-        let offset = animIndex % 256;
+        let offset = 256 * gTools.randomFast(i * dotColorTimer);
         this.texArray[i + 3] = ((dotColorTimer + offset) % 256) >> 0;
         this.animArray[animIndex] = (dotColorTimer + offset) >> 0;
         animIndex++;
@@ -488,19 +489,17 @@ class DataTexture {
       for (let i = 0; i < this.texArray.length; i += 4) {
         timestamp = this.animArray[animIndex];
         buffColor = this.texArray[i + 2];
-        if (dotColorTimer > timestamp) {
+        if (dotColorTimer >= timestamp) {
           // If there's something in the buffer, then perform a downward swap and set it to zero.
           if (buffColor != 254) {
             this.texArray[i] = this.texArray[i + 1];
             this.texArray[i + 1] = buffColor;
             this.texArray[i + 2] = 254; // Arbitrary non-color flag.
-            this.texArray[i + 3] = ((dotColorTimer + animInterval) >> 0) % 256;
-            this.animArray[animIndex] = (dotColorTimer + animInterval) >> 0;
-          // If there's nothing to do then stop animations by setting the start color and end color to the same value.
           } else {
+            // If there's nothing to do then stop animations by setting the start color and end color to the same value.
             this.texArray[i] = this.texArray[i + 1];
           }
-          // Create a new forward position for rollingTimer to catch up to.
+          // Create a new forward position for the dotColorTimer to catch up to.
           var timestampNew = dotColorTimer + animInterval;
           this.texArray[i + 3] = (timestampNew >> 0) % 256;
           this.animArray[animIndex] = timestampNew >> 0;
@@ -642,6 +641,15 @@ class UserGrid {
   }
 }
 
+/*
+  Theme array breakdown:
+  themeArray[0, 1, 2] = background
+  themeArray[3, 4, 5] = available
+  themeArray[6, 7, 8] = previewingTask
+  themeArray[9, 10, 11] = onCall
+  themeArray[12, 13, 14] = afterCall
+  themeArray[15, 16, 17] = loggedOut
+*/
 class ColorTheme {
   constructor(tempThemeName) {
     this.theme = this.setColorTheme(tempThemeName);
@@ -653,30 +661,42 @@ class ColorTheme {
     let tempColorTheme = [];
 
     switch (themeSelection) {
-      case "user":
+      case "User":
         // Values from CSS color picker go here.
         break;
-      case "random":
+      case "RandomHSV":
         tempColorTheme = this.randomThemeArray(Math.random(), 6);
         break;
+      case "RandomRGB":
+        let runningAverage = [0, 0, 0];
+        for (let i = 0; i < 6 * 3; i += 3) {
+          tempColorTheme[i] = 255 * Math.random();
+          tempColorTheme[i + 1] = 255 * Math.random();
+          tempColorTheme[i + 2] = 255 * Math.random();
+          runningAverage[0] += tempColorTheme[i];
+          runningAverage[1] += tempColorTheme[i + 1];
+          runningAverage[2] += tempColorTheme[i + 2];
+        }
+        runningAverage = [runningAverage[0] / 6, runningAverage[1] / 6, runningAverage[2] / 6];
+        [tempColorTheme[0], tempColorTheme[1], tempColorTheme[2]] = [0.3 * runningAverage[0], 0.3 * runningAverage[1], 0.3 * runningAverage[2]]
+        break;
+        case "American":
+          tempColorTheme = [40, 40, 48, 98, 96, 162, 87, 153, 226, 215, 70, 88, 40, 73, 250, 230, 220, 230];
+          break;
       default:
         // Theme from the client's slide:
-        background = [0, 0, 0];
-        available = [63, 191, 177];
-        previewingTask = [0, 110, 184];
-        onCall = [243, 108, 82];
-        afterCall = [255, 205, 52];
-        loggedOut = [0, 48, 70];
+        tempColorTheme = [0, 0, 0, 63, 191, 177, 0, 110, 184, 
+          243, 108, 82, 255, 205, 52, 0, 48, 70];
         break;
-    }
-
-    if (themeSelection != "random") {
-      tempColorTheme = [].concat(background, available, previewingTask,
-        onCall, afterCall, loggedOut);
     }
 
     document.body.style.backgroundColor = "rgb(" + tempColorTheme[0] + ","
       + tempColorTheme[1] + "," + tempColorTheme[2] + ")";
+
+      let consoleTheme = tempColorTheme;
+      for (let i = 0; i < tempColorTheme.length; i++) {
+        consoleTheme[i] = consoleTheme[i] >>0;
+      }
 
     // Normalize values for the shader.
     for (let i = 0; i < tempColorTheme.length; i++) {
