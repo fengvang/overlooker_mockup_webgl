@@ -178,10 +178,11 @@ class LayoutUserGrid {
         this.gridAnimations.updateColorMix(this.texMain.texArray, this.userCount);
       }
 
-      // Uses a noise function to select which users will receive a state update.
+      // Uses an aux function select which users will receive a state update.
+      // TODO: Use noise function for selection instead of getSeqIndex.
       for (let i = 0; i < updatesPerTick; i++) {
         var [tempStateCode, tempStateName] = this.getRandomState();
-        let tempIndex = this.gridAnimations.tileIndexNoise(this.gridMain, this.userSim.userArray.length - 1);
+        let tempIndex = this.gridAnimations.getSeqIndex(this.userSim.userArray.length - 1);
         this.userSim.setStateUser(tempIndex, tempStateCode, tempStateName);
       }
 
@@ -453,6 +454,7 @@ class AnimationGL {
     this.floatTimestamp = 0;
 
     // Index selection variables.
+    this.seqIndex = 0
     this.iteratorX = 0;
     this.iteratorY = 0;
 
@@ -523,7 +525,7 @@ class AnimationGL {
           // Update the shader animation end time.
           texArray[i + 3] = newTimeUInt8;
 
-          // Restart the JS timer.
+          // Restart the control timer.
           timerView[counter] = this.deltaTime * this.timescale;
         }
       } else {
@@ -533,17 +535,9 @@ class AnimationGL {
     }
   }
 
-  tileIndexNoise(tempGrid, tempMaxIndex) {
-    var index = 0;
-    var width = tempGrid.parameters.columns;
-    var height = tempGrid.parameters.rows;
-
-    this.iteratorX = (this.iteratorX + 1) % (width + 1);
-    if (this.iteratorX == width) {
-      this.iteratorY = (this.iteratorY + 1) % height;
-    }
-    index = (this.iteratorX + this.iteratorY * width) % (tempMaxIndex + 1);
-    return index;
+  getSeqIndex(tempMaxIndex) {
+    this.seqIndex = (this.seqIndex + 1) % tempMaxIndex;
+    return this.seqIndex;
   }
 
   calcNewShaderTime(currTime, addedTime) {
