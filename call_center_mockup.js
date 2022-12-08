@@ -40,10 +40,10 @@ function setup() {
     TODO: Redo initBlock explanations.
   */
 
-  let tempLayout = "growing";
+  let tempLayout = "";
   let initBlock = 0;
   switch (tempLayout) {
-    case "":
+    case "growing":
       initBlock = {
         ticksPerSecond: 20,
         colorMixDuration: 0.5,
@@ -51,7 +51,6 @@ function setup() {
         maxUsers: 1000000,
         joinPerTick: 1,
         updateRatio: 0.06,
-        maxStateQueue: 500000,
         themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
@@ -61,13 +60,12 @@ function setup() {
       break;
     default:
       initBlock = {
-        ticksPerSecond: 20,
+        ticksPerSecond: 50,
         colorMixDuration: 0.5,
         startingUsers: 10000,
-        maxUsers: 1000000,
+        maxUsers: 10000,
         joinPerTick: 0,
-        updateRatio: 0.06,
-        maxStateQueue: 500000,
+        updateRatio: 0.6,
         themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
@@ -125,14 +123,14 @@ class LayoutUserGrid {
     runTime = time * 0.001;
     this.gridAnimations.updateTimersDrawloopStart(time);
 
-    // Check for a window resize and adjust the grid + shader dimensions if
+    // Checks for a window resize and adjusts the grid + shader dimensions if
     // necessary.
     if (twgl.resizeCanvasToDisplaySize(gl.canvas)) {
       this.gridMain.resize(gl.canvas.width, gl.canvas.height);
       this.texMain.updateTextureDimensions(this.gridMain.parameters.columns, this.gridMain.parameters.rows);
     }
 
-    // Get fresh data to the shaders.
+    // Gets fresh data to the shaders.
     this.updateUniforms();
 
     // Dequeues the newest state changes from userSim and stores them in a state
@@ -149,10 +147,10 @@ class LayoutUserGrid {
     // previous step since it was passed by reference.
     this.texMain.updateTexture();
 
-    // Print the dots to the screen.
+    // Prints the dots to the screen.
     this.texMain.display();
 
-    // Check if the grid needs to be grows to accomodate the number of users.
+    // Grows grid to accomodate user joins.
     if (this.userCount > this.gridMain.parameters.activeTiles) {
       let newCount = this.userCount - this.gridMain.parameters.activeTiles;
       this.gridMain.addTiles(newCount, gl.canvas.width, gl.canvas.height);
@@ -173,19 +171,18 @@ class LayoutUserGrid {
         this.userCount++;
       }
 
-      // Use a noise function to select which users will receive a state update.
+      // Prevents overflow of updateQueue.
+      if (this.userSim.updateQueueCounter + updatesPerTick >= 2 * (this.initBlock.maxUsers - 1)) {
+        let [indexUpdateQueue, stateUpdateQueue] = this.userSim.dequeueNewStates();
+        this.gridAnimations.updateColorMixBuffer(indexUpdateQueue, stateUpdateQueue);
+        this.gridAnimations.updateColorMix(this.texMain.texArray, this.userCount);
+      }
+
+      // Uses a noise function to select which users will receive a state update.
       for (let i = 0; i < updatesPerTick; i++) {
         var [tempStateCode, tempStateName] = this.getRandomState();
         let tempIndex = this.gridAnimations.tileIndexNoise(this.gridMain, this.userSim.userArray.length - 1);
         this.userSim.setStateUser(tempIndex, tempStateCode, tempStateName);
-      }
-
-      // The draw loop doesn't run while minimized, so setInterval is used to
-      // avoid OOM.
-      if (this.userSim.updateQueueCounter >= this.initBlock.maxStateQueue) {
-        // TODO: collapseUpdateQueue
-        // Create a function that discards all but the last state per user in the
-        // queue.
       }
 
       if (this.userCount > this.initBlock.maxUsers) {
@@ -246,11 +243,12 @@ class UserSimulator {
     }
 
     this.userArray = [];
-    this.updateQueueIndexBuffer = new ArrayBuffer(4 * tempMaxUserCount); // Using Uint32, since Uint16 maxes at only 65535.
-    this.updateQueueStateBuffer = new ArrayBuffer(tempMaxUserCount);
+    this.maxUsers = tempMaxUserCount;
+    this.updateQueueIndexBuffer = new ArrayBuffer(2 * 4 * tempMaxUserCount); // Using Uint32, since Uint16 maxes at only 65535.
+    this.updateQueueStateBuffer = new ArrayBuffer(2 * tempMaxUserCount);
     this.updateQueueIndex = new Uint32Array(this.updateQueueIndexBuffer, 0, tempMaxUserCount);
     this.updateQueueState = new Uint8Array(this.updateQueueStateBuffer, 0, tempMaxUserCount);
-    this.updateQueueCounter = 0;
+    this.updateQueueRo = 0;
 
     this.stateCodes = {
       neverInitialized: 0,
@@ -325,10 +323,20 @@ class UserSimulator {
 }
 
 class DataTexture {
-  constructor(tempWidth, tempHeight, tempMaxUsers) {
+  constructor(tempWidth, tempHeight, tempMaxTiles) {
     this.texWidth = tempWidth;
     this.texHeight = tempHeight;
-    this.texBuffer = new ArrayBuffer(tempMaxUsers * 4);
+
+    // TODO: enforce minimum window dimensions so narrow windows can't cause
+    // thousands of texels.
+    let maxTexels = 0;
+    if (tempMaxTiles < 100) {
+      maxTexels = 500; 
+    } else {
+      maxTexels = (tempMaxTiles - 1) * 2; // To account for worst case texture size.
+    }
+    this.texBuffer = new ArrayBuffer(maxTexels * 4);
+
     this.texArray = new Uint8Array(this.texBuffer, 0, tempWidth * tempHeight * 4);
     this.colorTexture = this.createTexture(tempWidth, tempHeight);
     this.dataTexture = this.createTexture(tempWidth, tempHeight);
