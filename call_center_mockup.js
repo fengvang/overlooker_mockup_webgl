@@ -65,7 +65,7 @@ function setup() {
         startingUsers: 10000,
         maxUsers: 10000,
         joinPerTick: 0,
-        updateRatio: 0.6,
+        updateRatio: 0.06,
         themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
@@ -171,7 +171,7 @@ class LayoutUserGrid {
         this.userCount++;
       }
 
-      // Prevents overflow of updateQueue.
+      // Prevents overflow of updateQueue. TODO: switch this out for a ring buffer within userSim.
       if (this.userSim.updateQueueCounter + updatesPerTick >= 2 * (this.initBlock.maxUsers - 1)) {
         let [indexUpdateQueue, stateUpdateQueue] = this.userSim.dequeueNewStates();
         this.gridAnimations.updateColorMixBuffer(indexUpdateQueue, stateUpdateQueue);
@@ -248,7 +248,6 @@ class UserSimulator {
     this.updateQueueStateBuffer = new ArrayBuffer(2 * tempMaxUserCount);
     this.updateQueueIndex = new Uint32Array(this.updateQueueIndexBuffer, 0, tempMaxUserCount);
     this.updateQueueState = new Uint8Array(this.updateQueueStateBuffer, 0, tempMaxUserCount);
-    this.updateQueueRo = 0;
 
     this.stateCodes = {
       neverInitialized: 0,
@@ -333,7 +332,7 @@ class DataTexture {
     if (tempMaxTiles < 100) {
       maxTexels = 500; 
     } else {
-      maxTexels = (tempMaxTiles - 1) * 2; // To account for worst case texture size.
+      maxTexels = (tempMaxTiles - 1) * 2; // Account for *reasonable worst case texture size.
     }
     this.texBuffer = new ArrayBuffer(maxTexels * 4);
 
@@ -495,11 +494,8 @@ class AnimationGL {
   // stored in texArray[i + 3] with shaderLoop which is passed as a uniform.
   //
   // Since shaderLoop is a looping timer, every animation would repeat itself
-  // without intervention. Timers are used on the JS side to perform the
+  // without intervention. Control timers are used on the JS side to perform the
   // necessary updates to texArray to start and end animations.
-  //
-  // Synchronization problems can occur between these timers and shaderLoop so
-  // care is needed when changing updatesPerTick, animation durations, etc.
   updateColorMix(texArray, totalObjects) {
     let stateBuffer = new Uint8Array(this.newStateBuffer, 0, totalObjects);
     let timerView = new Float32Array(this.timerColorMixBuffer, 0, totalObjects);
