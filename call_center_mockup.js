@@ -43,31 +43,31 @@ function setup() {
   switch (tempLayout) {
     case "growing":
       initBlock = {
-        ticksPerSecond: 20,
+        ticksPerSecond: 250,
         colorMixDuration: 0.5,
         startingUsers: 1,
         maxUsers: 1000000,
         joinPerTick: 1,
-        updateRatio: 0.06,
+        updateRatio: 0.6,
         themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
-        tickInterval: 25,
+        tickInterval: 500,
       }
       layout = new LayoutUserGrid(initBlock);
       break;
     default:
       initBlock = {
-        ticksPerSecond: 50,
+        ticksPerSecond: 250,
         colorMixDuration: 0.5,
-        startingUsers: 10000,
-        maxUsers: 10000,
+        startingUsers: 500,
+        maxUsers: 500,
         joinPerTick: 0,
-        updateRatio: 0.06,
+        updateRatio: 0.5,
         themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
-        tickInterval: 25,
+        tickInterval: 500,
       }
       layout = new LayoutUserGrid(initBlock);
   }
@@ -80,15 +80,16 @@ class LayoutUserGrid {
     this.gridMain = new UserGrid(this.userCount, gl.canvas.width, gl.canvas.height, tempInitBlock.dotPadding, tempInitBlock.tilingSpanMode);
     this.userSim = new UserSimulator(this.userCount, tempInitBlock.maxUsers);
     this.texMain = new DataTexture(this.gridMain.parameters.columns, this.gridMain.parameters.rows, tempInitBlock.maxUsers);
+    this.gridAnimations = new AnimationGL(tempInitBlock.ticksPerSecond, tempInitBlock.colorMixDuration, 1, this.userCount, tempInitBlock.maxUsers);
     uniforms.u_texture_color = this.texMain.colorTexture;
     uniforms.u_texture_data = this.texMain.dataTexture;
     this.layoutTheme = new ColorTheme(tempInitBlock.themeSelection);
-    this.mouseOver = { index: "uninit", user: 0, };
-    this.gridAnimations = new AnimationGL(tempInitBlock.ticksPerSecond, tempInitBlock.colorMixDuration, 1, this.userCount, tempInitBlock.maxUsers);
+    this.tooltip = document.querySelectorAll('.tooltip');
+    this.toolTipIndex = 0;
 
     // Create a click listener for selecting users:
-    addEventListener('click', (event) => {
-      this.mouseClick(event);
+    addEventListener('mousemove', (event) => {
+      this.mouseMove(event);
     });
 
     if (typeof uniforms.u_texture_color != 'object' || typeof uniforms.u_texture_color != 'object') {
@@ -110,8 +111,15 @@ class LayoutUserGrid {
     uniforms.u_interval = this.gridAnimations.colorMixDuration;
   }
 
+  updateTooltip() {
+    if (this.tooltip[0].style.visible != "none") {
+      this.tooltip[0].innerHTML = JSON.stringify(this.userSim.userArray[this.toolTipIndex], null, 2);
+    }
+  }
+
   render = (time) => {
     this.gridAnimations.updateTimersDrawloopStart(time);
+    this.updateTooltip();
 
     // Checks for a window resize and adjusts the grid + shader dimensions if
     // necessary.
@@ -174,7 +182,7 @@ class LayoutUserGrid {
     }, this.initBlock.tickInterval);
   }
 
-  mouseClick(event) {
+  mouseMove(event) {
     // Give dots circular bounds if there are less than 1000 users on screen.
     let circularDotsFlag = 0;
     if (this.userSim.userArray.length < 1000) {
@@ -186,15 +194,22 @@ class LayoutUserGrid {
     var mouseX = event.clientX - rect.left;
     var mouseY = event.clientY - rect.top;
 
-    var tempMouseOver = { index: this.gridMain.getTileIndex(mouseX, mouseY, circularDotsFlag), user: 0 };
-    if (tempMouseOver.index == "invalid") {
-      console.log("Offscreen or missed!");
+    var mouseOverInfo = { index: this.gridMain.getTileIndex(mouseX, mouseY, circularDotsFlag), user: 0 };
+    if (mouseOverInfo.index == "invalid") {
+      for (var i = this.tooltip.length; i--;) {
+        this.tooltip[i].style.display = "none";
+      }
     } else {
-      tempMouseOver.user = this.userSim.userArray[tempMouseOver.index];
-
+      this.toolTipIndex = mouseOverInfo.index;
+      mouseOverInfo.user = this.userSim.userArray[mouseOverInfo.index];
+      let tempColor = 'font-weight: bold; background-color: ' + (this.layoutTheme.colorLookup(mouseOverInfo.user.currentState));
+      for (var i = this.tooltip.length; i--;) {
+        this.tooltip[i].style.display = "block";
+        this.tooltip[i].style.left = event.pageX + 'px';
+        this.tooltip[i].style.top = event.pageY + 'px';
+      }
       // tempColor is in "rgb(r, g, b)" CSS color
-      let tempColor = 'font-weight: bold; background-color: ' + (this.layoutTheme.colorLookup(tempMouseOver.user.currentState));
-      console.log('%cuserArray[%s]:', tempColor, tempMouseOver.index, tempMouseOver.user);
+      //console.log('%cuserArray[%s]:', tempColor, mouseOverInfo.index, mouseOverInfo.user);
     }
   }
 
@@ -218,9 +233,9 @@ class UserSimulator {
     }
 
     this.stateCodes = {
-      neverInitialized: 0,
+      uninit: 0,
       available: 51,
-      previewingTask: 102,
+      previewing: 102,
       onCall: 153,
       afterCall: 204,
       loggedOut: 255,
@@ -259,7 +274,7 @@ class UserSimulator {
       userID: (Math.random() + 1).toString(36).substring(7),
       currentState: tempState,
       stateName: tempStateName,
-      connectionTime: Math.floor(Date.now() * 0.001), // In epoch time.
+      connectionStart: Math.floor(Date.now() * 0.001), // In epoch time.
       connectionStatus: "online",
     });
     let tempIndex = this.userArray.length - 1;
@@ -269,14 +284,15 @@ class UserSimulator {
   userLeave(tempIndex) {
     this.userArray[tempIndex].currentState = 255;
     this.userArray[tempIndex].stateName = "loggedOut";
-    this.userArray[tempIndex].connectionStatus = "offline";
+    this.userArray[tempIndex].connectionStart = 0,
+      this.userArray[tempIndex].connectionStatus = "offline";
     this.enqueueNewState(tempIndex, 255);
   }
 
   getRandomStateJoin() {
     let tempStateIndex = (3 * Math.random() + 1) >> 0;
     let validStateCodes = [153, 51, 102, 204];
-    let validStateNames = ["onCall", "available", "previewingTask", "afterCall"];
+    let validStateNames = ["onCall", "available", "previewing", "afterCall"];
     return [validStateCodes[tempStateIndex], validStateNames[tempStateIndex]];
   }
 
@@ -288,17 +304,20 @@ class UserSimulator {
     } else {
       tempStateIndex = (5 * VisualAux.randomFast(stateSeed)) >> 0;
     }
-    var validStateNames = ["onCall", "available", "previewingTask", "afterCall", "loggedOut"];
+    var validStateNames = ["onCall", "available", "previewing", "afterCall", "loggedOut"];
     var validStateCodes = [153, 51, 102, 204, 255];
     return [validStateCodes[tempStateIndex], validStateNames[tempStateIndex]];
   }
 
   setStateUser(tempIndex, tempState, tempStateName) {
     if (tempStateName == "loggedOut") {
+      this.userArray[tempIndex].connectionStart = 0;
       this.userArray[tempIndex].connectionStatus = "offline";
-    } else {
+    } else if (this.userArray[tempIndex].connectionStatus == "offline") {
+      this.userArray[tempIndex].connectionStart = Math.floor(Date.now() * 0.001);
       this.userArray[tempIndex].connectionStatus = "online";
     }
+
     this.userArray[tempIndex].currentState = tempState;
     this.userArray[tempIndex].stateName = tempStateName;
     this.enqueueNewState(tempIndex, tempState);
@@ -472,11 +491,11 @@ class AnimationGL {
 
     this.colorMixTimerArrayBuffer = new ArrayBuffer(tempMaxUsers * 4);
     this.colorMixTimerArray = new Float32Array(this.colorMixTimerArrayBuffer, 0, tempMaxUsers);
-    this.scatterTimers(this.colorMixTimerArray);
+    this.scatterTimers(this.colorMixTimerArray, this.colorMixDuration);
 
     this.pulseTimerArrayBuffer = new ArrayBuffer(tempMaxUsers * 4);
     this.pulseTimerArray = new Float32Array(this.pulseTimerArrayBuffer, 0, tempMaxUsers);
-    this.scatterTimers(this.pulseTimerArray);
+    this.scatterTimers(this.pulseTimerArray, this.pulseDuration);
 
     this.stateBufferArrayBuffer = new ArrayBuffer(tempMaxUsers);
     this.stateBufferArray = new Uint8Array(this.stateBufferArrayBuffer, 0, tempMaxUsers);
@@ -490,9 +509,9 @@ class AnimationGL {
   }
 
   // Introduces random delay to reduce animation clumping.
-  scatterTimers(tempControlTimerArray) {
+  scatterTimers(tempControlTimerArray, animationDuration) {
     for (let i = 0; i < tempControlTimerArray.length; i++) {
-      tempControlTimerArray[i] = -Math.random() * 2.5 * this.ticksPerSecond;
+      tempControlTimerArray[i] = -Math.random() * animationDuration;
     }
   }
 
@@ -517,7 +536,7 @@ class AnimationGL {
 
           // Introduce random delay so that clumped state updates don't cause
           // clumped animations.
-          this.colorMixTimerArray[counter] = -Math.random() * 2.5 * this.ticksPerSecond;
+          this.colorMixTimerArray[counter] = -Math.random() * 0.5 * this.ticksPerSecond;
         } else {
           // Make the last end state the new start state.
           texArray[i] = texArray[i + 1];
@@ -712,7 +731,7 @@ class ColorTheme {
   setColorTheme(themeSelection) {
     // themeArray[0, 1, 2] = background
     // themeArray[3, 4, 5] = available
-    // themeArray[6, 7, 8] = previewingTask
+    // themeArray[6, 7, 8] = previewing
     // themeArray[9, 10, 11] = onCall
     // themeArray[12, 13, 14] = afterCall
     // themeArray[15, 16, 17] = loggedOut
@@ -747,11 +766,6 @@ class ColorTheme {
 
     document.body.style.backgroundColor = "rgb(" + themeArray[0] + ","
       + themeArray[1] + "," + themeArray[2] + ")";
-
-    let consoleTheme = themeArray;
-    for (let i = 0; i < themeArray.length; i++) {
-      consoleTheme[i] = consoleTheme[i] >> 0;
-    }
 
     // Normalize colors: the shader uses colors whose channels go from 0 to 1.
     for (let i = 0; i < themeArray.length; i++) {
@@ -809,7 +823,6 @@ class ColorTheme {
 class VisualAux {
   constructor(sineLength) {
     this.sineArray = VisualAux.createSineArray(sineLength);
-    this.sineScale = 1;
   }
 
   // Uses the mulberry32 algorithm, which is faster than Math.random() while
@@ -824,7 +837,7 @@ class VisualAux {
 
   // Creates a lookup array for replacing the Math.sin function.
   static createSineArray(tempRes) {
-    let tempSineArray = new Float32Array(0, tempRes);
+    let tempSineArray = new Float32Array(tempRes);
     let tempScale = (2 * Math.PI) / tempRes;
     for (let i = 0; i < tempRes - 1; i++) {
       tempSineArray[i] = Math.sin(i * tempScale);
@@ -835,9 +848,9 @@ class VisualAux {
   // Uses a non-periodic sum of sinusoids for smooth noise generation.
   sineNoise(inputA, inputB, offsetA, offsetB) {
     var modLength = this.sineArray.length;
-    var sineInputPI = ((this.sineScale * (Math.PI * inputA + offsetA)) % modLength) >> 0;
-    var sineInput2 = (this.sineScale * (Math.sqrt(2) * inputB + offsetB)) % modLength;
-    var sineOutput = 0.5 * (this.sineArray[sineInputPI] + this.sineArray[sineInput2 >> 0]);
+    var sineInputPI = ((Math.PI * inputA + offsetA) % modLength) >> 0;
+    var sineInput2 = ((Math.sqrt(2) * inputB + offsetB) % modLength) >> 0;
+    var sineOutput = 0.5 * (this.sineArray[sineInputPI] + this.sineArray[sineInput2]);
     return sineOutput;
   }
 
