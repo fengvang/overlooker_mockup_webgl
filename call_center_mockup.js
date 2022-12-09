@@ -21,7 +21,8 @@ const glArrays = {
   ],
 };
 
-// Uniforms are constants shared by every vertex and fragment for each shader. 
+// Uniforms are constants shared by every vertex and fragment for each shader.
+// twgl sends them to the shaders in a big block statement for convenience.
 const uniforms = {
   u_time: 0, u_mouse: [0, 0,], u_interval: 0,
   u_resolution: [0, 0,], u_aafactor: 0, u_gridparams: [0, 0, 0,], u_colortheme: 0,
@@ -31,7 +32,6 @@ const bufferInfo = twgl.createBufferInfoFromArrays(gl, glArrays);
 twgl.setBuffersAndAttributes(gl, shaderStageScreen, bufferInfo);
 twgl.setBuffersAndAttributes(gl, shaderStageTexture, bufferInfo);
 
-var runTime = 0;
 var layout = 0; // Take out of global context for real deployment.
 function setup() {
   'use strict'
@@ -102,17 +102,10 @@ class LayoutUserGrid {
     requestAnimationFrame(this.render); // Start draw loop.
   }
 
-  // All uniforms are here excluding the texture samplers which are set once
-  // before the draw loop.
   updateUniforms() {
     uniforms.u_resolution = [gl.canvas.width, gl.canvas.height];
     uniforms.u_gridparams = [this.gridMain.parameters.columns, this.gridMain.parameters.rows, this.gridMain.parameters.padding];
-
-    // Eyeballed sub pixel value for anti-aliasing. Need the actual screen
-    // resolution rather than browser window size but can't get it from CSS so
-    // dots are slightly blurry.
-    uniforms.u_aafactor = this.texMain.texHeight * 1.5 / gl.canvas.height;
-
+    uniforms.u_aafactor = this.texMain.texHeight * 1.5 / gl.canvas.height; // Magic pixel value for anti-aliasing.
     uniforms.u_colortheme = this.layoutTheme.theme;
     uniforms.u_matrix = VisualAux.scaleFragCoords(this.texMain.texWidth, this.texMain.texHeight, "preserve");
     uniforms.u_time = this.gridAnimations.shaderLoop;
@@ -120,7 +113,6 @@ class LayoutUserGrid {
   }
 
   render = (time) => {
-    runTime = time * 0.001;
     this.gridAnimations.updateTimersDrawloopStart(time);
 
     // Checks for a window resize and adjusts the grid + shader dimensions if
@@ -135,13 +127,12 @@ class LayoutUserGrid {
 
     // Dequeues the newest state changes from userSim and stores them in a state
     // buffer within gridAnimations.
-    let [indexUpdateQueue, stateUpdateQueue] = this.userSim.dequeueNewStates();
-    this.gridAnimations.updateColorMixBuffer(indexUpdateQueue, stateUpdateQueue);
+    this.userSim.dequeueNewStatesToBuffer(this.gridAnimations.stateBufferArray);
 
     // Pops state from the buffer, sets animation end time, and resets control
     // timer for users that have completed their color mixing animation.
     // Increments control timer for those who haven't. 
-    this.gridAnimations.updateColorMix(this.texMain.texArray, this.userCount);
+    this.gridAnimations.updateColorMix(this.texMain.texArray);
 
     // Creates a new texture from texArray; contains all changes from the
     // previous step since it was passed by reference.
@@ -162,28 +153,22 @@ class LayoutUserGrid {
   }
 
   simLoop() {
+    let userSelect = 0;
+
     let clientClock = setInterval(() => {
       let updatesPerTick = Math.ceil(this.userSim.userArray.length * this.initBlock.updateRatio);
 
       for (let i = 0; i < this.initBlock.joinPerTick; i++) {
-        var [tempStateCode, tempStateName] = this.getRandomState();
+        var [tempStateCode, tempStateName] = this.userSim.getRandomStateInitialized();
         this.userSim.userJoin(tempStateCode, tempStateName);
         this.userCount++;
       }
 
-      // Prevents overflow of updateQueue. TODO: switch this out for a ring buffer within userSim.
-      if (this.userSim.updateQueueCounter + updatesPerTick >= 2 * (this.initBlock.maxUsers - 1)) {
-        let [indexUpdateQueue, stateUpdateQueue] = this.userSim.dequeueNewStates();
-        this.gridAnimations.updateColorMixBuffer(indexUpdateQueue, stateUpdateQueue);
-        this.gridAnimations.updateColorMix(this.texMain.texArray, this.userCount);
-      }
-
-      // Uses an aux function select which users will receive a state update.
-      // TODO: Use noise function for selection instead of getSeqIndex.
       for (let i = 0; i < updatesPerTick; i++) {
-        var [tempStateCode, tempStateName] = this.getRandomState();
-        let tempIndex = this.gridAnimations.getSeqIndex(this.userSim.userArray.length - 1);
-        this.userSim.setStateUser(tempIndex, tempStateCode, tempStateName);
+        var [tempStateCode, tempStateName] = this.userSim.getRandomStateInitialized();
+        this.userSim.setStateUser(userSelect, tempStateCode, tempStateName);
+
+        userSelect = (userSelect + 1) % this.userCount;
       }
 
       if (this.userCount > this.initBlock.maxUsers) {
@@ -224,14 +209,6 @@ class LayoutUserGrid {
     this.gridMain = new UserGrid(this.userCount, gl.canvas.width, gl.canvas.height, this.initBlock.dotPadding, this.initBlock.tilingSpanMode);
     this.userSim = new UserSimulator(this.userCount, this.initBlock.maxUsers);
   }
-
-  // Grabs from a list of states excluding uninitialized.
-  getRandomState() {
-    var validStateNames = ["onCall", "available", "previewingTask", "afterCall", "loggedOut"];
-    var validStateCodes = [153, 51, 102, 204, 255];
-    var tempStateIndex = (5 * Math.random()) >> 0;
-    return [validStateCodes[tempStateIndex], validStateNames[tempStateIndex]];
-  }
 }
 
 class UserSimulator {
@@ -243,13 +220,6 @@ class UserSimulator {
         + " also initialized the same.")
     }
 
-    this.userArray = [];
-    this.maxUsers = tempMaxUserCount;
-    this.updateQueueIndexBuffer = new ArrayBuffer(2 * 4 * tempMaxUserCount); // Using Uint32, since Uint16 maxes at only 65535.
-    this.updateQueueStateBuffer = new ArrayBuffer(2 * tempMaxUserCount);
-    this.updateQueueIndex = new Uint32Array(this.updateQueueIndexBuffer, 0, tempMaxUserCount);
-    this.updateQueueState = new Uint8Array(this.updateQueueStateBuffer, 0, tempMaxUserCount);
-
     this.stateCodes = {
       neverInitialized: 0,
       available: 51,
@@ -259,6 +229,22 @@ class UserSimulator {
       loggedOut: 255,
     };
 
+    this.bufferCodes = {
+      empty: 254,
+    }
+
+    this.userArray = [];
+    this.maxUsers = tempMaxUserCount;
+    this.updateQueueIndexBuffer = new ArrayBuffer(4 * tempMaxUserCount); // Using Uint32, since Uint16 maxes at only 65535.
+    this.updateQueueStateBuffer = new ArrayBuffer(tempMaxUserCount);
+
+    this.updateQueueCounter = 0;
+    this.updateQueueIndex = new Uint32Array(this.updateQueueIndexBuffer, 0, tempMaxUserCount);
+    this.updateQueueState = new Uint8Array(this.updateQueueStateBuffer, 0, tempMaxUserCount);
+
+    this.updateQueueOverflowFlag = 0;
+    this.updateQueueOverflow = new Uint8Array(tempMaxUserCount);
+    this.updateQueueOverflow.set(this.bufferCodes.empty);
     this.initUserArray(tempUserCount);
   }
 
@@ -270,7 +256,7 @@ class UserSimulator {
 
   userJoin(tempState, tempStateName) {
     if (tempState == null || tempStateName == null) {
-      [tempState, tempStateName] = this.getValidJoinState();
+      [tempState, tempStateName] = this.getRandomStateJoin();
     }
     this.userArray.push({
       userID: (Math.random() + 1).toString(36).substring(7),
@@ -290,10 +276,23 @@ class UserSimulator {
     this.enqueueNewState(tempIndex, 255);
   }
 
-  getValidJoinState() {
+  getRandomStateJoin() {
     let tempStateIndex = (3 * Math.random() + 1) >> 0;
     let validStateCodes = [153, 51, 102, 204];
     let validStateNames = ["onCall", "available", "previewingTask", "afterCall"];
+    return [validStateCodes[tempStateIndex], validStateNames[tempStateIndex]];
+  }
+
+  getRandomStateInitialized(stateSeed) {
+    var tempStateIndex = 0;
+
+    if (stateSeed == null) {
+      tempStateIndex = (5 * Math.random()) >> 0;
+    } else {
+      tempStateIndex = (5 * VisualAux.randomFast(stateSeed)) >> 0;
+    }
+    var validStateNames = ["onCall", "available", "previewingTask", "afterCall", "loggedOut"];
+    var validStateCodes = [153, 51, 102, 204, 255];
     return [validStateCodes[tempStateIndex], validStateNames[tempStateIndex]];
   }
 
@@ -309,16 +308,43 @@ class UserSimulator {
   }
 
   enqueueNewState(tempIndex, tempState) {
-    this.updateQueueIndex[this.updateQueueCounter] = tempIndex;
-    this.updateQueueState[this.updateQueueCounter] = tempState;
-    this.updateQueueCounter++;
+    if (this.updateQueueCounter >= this.maxUsers) {
+      this.compactNewStates(this.updateQueueOverflow);
+    } else {
+      this.updateQueueIndex[this.updateQueueCounter] = tempIndex;
+      this.updateQueueState[this.updateQueueCounter] = tempState;
+      this.updateQueueCounter++;
+    }
   }
 
-  dequeueNewStates() {
-    let tempQueueIndex = new Uint32Array(this.updateQueueIndexBuffer, 0, this.updateQueueCounter);
-    let tempQueueState = new Uint8Array(this.updateQueueStateBuffer, 0, this.updateQueueCounter);
+  // Writes outstanding states to a state buffer from oldest to newest.
+  dequeueNewStatesToBuffer(tempStateBuffer) {
+
+    // Applies overflow array if the queue ran out of space, then dequeues per
+    // usual afterwards.
+    if (this.updateQueueOverflowFlag == 1) {
+      let empty = this.bufferCodes.empty;
+      for (let i = 0; i < this.userArray.length; i++) {
+        if (this.updateQueueOverflow[i] != empty) {
+          tempStateBuffer[i] = this.updateQueueOverflow[i];
+          this.updateQueueOverflow[i] = this.bufferCodes.empty;
+        }
+      }
+      this.updateQueueOverflowFlag = 0;
+    }
+    for (let i = 0; i < this.updateQueueCounter; i++) {
+      tempStateBuffer[this.updateQueueIndex[i]] = this.updateQueueState[i];
+    }
     this.updateQueueCounter = 0;
-    return [tempQueueIndex, tempQueueState];
+  }
+
+  // Prevents the queue from overflowing while minimized.
+  compactNewStates() {
+    for (let i = 0; i < this.userArray.length; i++) {
+      this.updateQueueOverflow[this.updateQueueIndex[i]] = this.updateQueueState[i];
+    }
+    this.updateQueueOverflowFlag = 1;
+    this.updateQueueCounter = 0;
   }
 }
 
@@ -331,9 +357,9 @@ class DataTexture {
     // thousands of texels.
     let maxTexels = 0;
     if (tempMaxTiles < 100) {
-      maxTexels = 500; 
+      maxTexels = 500;
     } else {
-      maxTexels = (tempMaxTiles - 1) * 2; // Account for *reasonable worst case texture size.
+      maxTexels = (tempMaxTiles - 1) * 2; // Account for reasonable worst case texture size.
     }
     this.texBuffer = new ArrayBuffer(maxTexels * 4);
 
@@ -438,55 +464,38 @@ class AnimationGL {
       this.pulseDuration = tempPulseDuration * tempTicksPerSecond;
     }
 
+    this.bufferCodes = {
+      uninit: 253,
+      empty: 254,
+    }
+
     this.ticksPerSecond = tempTicksPerSecond;
     this.timescale = tempTicksPerSecond * 0.001;
     this.maxUsers = tempMaxUsers;
 
-    this.timerColorMixBuffer = new ArrayBuffer(tempMaxUsers * 4); // Float32
-    this.timerPulseBuffer = new ArrayBuffer(tempMaxUsers * 4);    // Float32
-    this.newStateBuffer = new ArrayBuffer(tempMaxUsers);          // Uint8
+    this.colorMixTimerArrayBuffer = new ArrayBuffer(tempMaxUsers * 4);
+    this.colorMixTimerArray = new Float32Array(this.colorMixTimerArrayBuffer, 0, tempMaxUsers);
+    this.scatterTimers(this.colorMixTimerArray);
 
-    // Timing variables.
-    this.timer = 0;
+    this.pulseTimerArrayBuffer = new ArrayBuffer(tempMaxUsers * 4);
+    this.pulseTimerArray = new Float32Array(this.pulseTimerArrayBuffer, 0, tempMaxUsers);
+    this.scatterTimers(this.pulseTimerArray);
+
+    this.stateBufferArrayBuffer = new ArrayBuffer(tempMaxUsers);
+    this.stateBufferArray = new Uint8Array(this.stateBufferArrayBuffer, 0, tempMaxUsers);
+    this.stateBufferArray.set(this.bufferCodes.uninit);
+
+    this.runTime = 0;
     this.prevTime = 0;
     this.deltaTime = 0;
     this.shaderLoop = 0;
     this.floatTimestamp = 0;
-
-    // Index selection variables.
-    this.seqIndex = 0
-    this.iteratorX = 0;
-    this.iteratorY = 0;
-
-    // Color mixing variables.
-    this.uninitCode = 253;
-    this.emptyCode = 254;
-
-    let stateBuffer = new Uint8Array(this.newStateBuffer, 0, this.maxUsers);
-    stateBuffer.set(this.uninitCode);
-
-    this.scatterTimers(totalObjects);
   }
 
   // Introduces random delay to reduce animation clumping.
-  scatterTimers(totalObjects) {
-    let tempTimerColorArray = new Float32Array(this.timerColorMixBuffer, 0, totalObjects);
-    let tempTimerPulseArray = new Float32Array(this.timerPulseBuffer, 0, totalObjects);
-
-    for (let i = 0; i < totalObjects; i++) {
-      tempTimerColorArray[i] = -Math.random() * 2.5 * this.ticksPerSecond;
-      tempTimerPulseArray[i] = -Math.random() * 2.5 * this.ticksPerSecond;
-    }
-  }
-
-  // Stores newest states to a buffer which is popped when a user finishes their
-  // color mix animation. Inputs must be in the form of a queue so that the
-  // latest states override the oldest.
-  updateColorMixBuffer(indexUpdateQueue, stateUpdateQueue) {
-    let stateBuffer = new Uint8Array(this.newStateBuffer, 0, this.maxUsers);
-
-    for (let i = 0; i < stateUpdateQueue.length; i++) {
-      stateBuffer[indexUpdateQueue[i]] = stateUpdateQueue[i];
+  scatterTimers(tempControlTimerArray) {
+    for (let i = 0; i < tempControlTimerArray.length; i++) {
+      tempControlTimerArray[i] = -Math.random() * 2.5 * this.ticksPerSecond;
     }
   }
 
@@ -498,53 +507,48 @@ class AnimationGL {
   // Since shaderLoop is a looping timer, every animation would repeat itself
   // without intervention. Control timers are used on the JS side to perform the
   // necessary updates to texArray to start and end animations.
-  updateColorMix(texArray, totalObjects) {
-    let stateBuffer = new Uint8Array(this.newStateBuffer, 0, totalObjects);
-    let timerView = new Float32Array(this.timerColorMixBuffer, 0, totalObjects);
+  updateColorMix(texArray) {
     let newTimeUInt8 = this.calcNewShaderTime(this.shaderLoop, this.colorMixDuration) >> 0;
-    let counter = 0;
 
-    for (let i = 0; i < totalObjects * 4; i += 4) {
-      if (timerView[counter] >= this.colorMixDuration) {
-        if (stateBuffer[counter] == this.emptyCode) {
+    let counter = 0;
+    for (let i = 0; i < texArray.length; i += 4) {
+      if (this.colorMixTimerArray[counter] >= this.colorMixDuration) {
+        if (this.stateBufferArray[counter] == this.bufferCodes.empty) {
           // Prevent the color mix animation from starting over by setting the
           // start state equal to the end state.
           texArray[i] = texArray[i + 1];
 
           // Introduce random delay so that clumped state updates don't cause
           // clumped animations.
-          timerView[counter] = -Math.random() * 2.5 * this.ticksPerSecond;
+          this.colorMixTimerArray[counter] = -Math.random() * 2.5 * this.ticksPerSecond;
         } else {
           // Make the last end state the new start state.
           texArray[i] = texArray[i + 1];
 
           // Pop from the state buffer.
-          texArray[i + 1] = stateBuffer[counter];
-          stateBuffer[counter] = this.emptyCode;
+          texArray[i + 1] = this.stateBufferArray[counter];
+          this.stateBufferArray[counter] = this.bufferCodes.empty;
 
           // Update the shader animation end time.
           texArray[i + 3] = newTimeUInt8;
 
           // Restart the control timer.
-          timerView[counter] = this.deltaTime * this.timescale;
+          this.colorMixTimerArray[counter] = this.deltaTime * this.timescale;
         }
       } else {
-        timerView[counter] += this.deltaTime * this.timescale;
+        // Progress the control timer.
+        this.colorMixTimerArray[counter] += this.deltaTime * this.timescale;
       }
       counter++;
     }
   }
 
-  getSeqIndex(tempMaxIndex) {
-    this.seqIndex = (this.seqIndex + 1) % tempMaxIndex;
-    return this.seqIndex;
-  }
-
   calcNewShaderTime(currTime, addedTime) {
     let tempShaderLoop = 0;
     let newShaderLoop = currTime + addedTime;
+
     if (newShaderLoop >= 256.0) {
-      tempShaderLoop = newShaderLoop - 256.0;
+      tempShaderLoop = newShaderLoop % 256.0; // Avoid % until necessary.
     } else {
       tempShaderLoop = newShaderLoop;
     }
@@ -557,7 +561,7 @@ class AnimationGL {
     if (this.deltaTime > 500) {
       this.deltaTime = 0; // Pause animations while minimized.
     } else {
-      this.timer += this.deltaTime * this.timescale;
+      this.runTime += this.deltaTime * 0.001;
       this.shaderLoop = this.calcNewShaderTime(this.shaderLoop, this.deltaTime * this.timescale);
     }
   }
@@ -683,9 +687,9 @@ class UserGrid {
     } else if (treatAsCircular) {
       // Use a distance formula test from input coords to center of tile:
       // greater than radius means the user missed.
-      let radius = this.parameters.tileSize * (1 - this.parameters.padding) / 2;
-      let centerX = this.parameters.marginX + this.parameters.tileSize / 2 + xPosGrid * this.parameters.tileSize;
-      let centerY = this.parameters.marginY + this.parameters.tileSize / 2 + yPosGrid * this.parameters.tileSize;
+      let radius = 0.5 * this.parameters.tileSize * (1 - this.parameters.padding);
+      let centerX = this.parameters.marginX + 0.5 * this.parameters.tileSize + xPosGrid * this.parameters.tileSize;
+      let centerY = this.parameters.marginY + 0.5 * this.parameters.tileSize + yPosGrid * this.parameters.tileSize;
       let centerDistance = Math.sqrt(Math.pow(tempXPos - centerX, 2) + Math.pow(tempYPos - centerY, 2));
       if (centerDistance > radius) {
         index = "invalid";
@@ -813,11 +817,10 @@ class ColorTheme {
 // A collection of various functions that are useful for graphics and visualization.
 class VisualAux {
   'use strict'
-  constructor() {
-    let sineLength = 3600;
+  constructor(sineLength) {
     this.randomSeed = 0;
     this.sineArray = VisualAux.createSineArray(sineLength);
-    this.sineScale = (180 / Math.PI) * sineLength;
+    this.sineScale = 1;
   }
 
   // Uses the mulberry32 algorithm, which is faster than Math.random() while
@@ -842,6 +845,17 @@ class VisualAux {
     }
     return tempSineArray;
   }
+
+  /*
+    // UNFINISHED: messing with color selection. Will be moved later.
+  genRandomNoise(count) {
+    let sineInputPI = (((this.shaderLoop / 255) * this.sineArrayNormal.length) % this.sineArrayNormal.length) >> 0;
+    let sineInput2 = ((count) % this.sineArrayNormal.length) >> 0;;
+    let sineOutput = this.sineArrayNormal[sineInputPI] + this.sineArrayTwo[sineInput2];
+    let sineOutputNormal = 0.5 + 0.25 * sineOutput;
+    return 1000 * sineOutputNormal;
+  }
+  */
 
   // Uses a non-periodic sum of sinusoids for smooth noise generation.
   sineNoise(inputA, inputB, offsetA, offsetB) {
