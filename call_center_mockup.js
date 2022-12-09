@@ -43,7 +43,7 @@ function setup() {
   switch (tempLayout) {
     case "growing":
       initBlock = {
-        ticksPerSecond: 250,
+        ticksPerSecond: 20,
         colorMixDuration: 0.5,
         startingUsers: 1,
         maxUsers: 1000000,
@@ -58,7 +58,7 @@ function setup() {
       break;
     default:
       initBlock = {
-        ticksPerSecond: 250,
+        ticksPerSecond: 20,
         colorMixDuration: 0.5,
         startingUsers: 500,
         maxUsers: 500,
