@@ -10,8 +10,8 @@ if (gl == null || shaderStageScreen == null || shaderStageTexture == null) {
     + " to use WebGL 1.0 to continue.");
 }
 
-// Vertices for a unit quad (two triangles in shape of a square) that spans the
-// div so the fragment shader can write to the screen.
+// Vertices for a unit quad that spans the div so the fragment shader can write
+// to the screen.
 const glArrays = {
   a_position: [-1.0, -1.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0,
   -1.0, 1.0, 0.0, 1.0, -1.0, 0.0, 1.0, 1.0, 0.0,
@@ -34,8 +34,6 @@ twgl.setBuffersAndAttributes(gl, shaderStageTexture, bufferInfo);
 
 var layout = 0; // Take out of global context for real deployment.
 function setup() {
-  'use strict'
-
   /*
     TODO: Redo initBlock explanations.
   */
@@ -167,7 +165,6 @@ class LayoutUserGrid {
       for (let i = 0; i < updatesPerTick; i++) {
         var [tempStateCode, tempStateName] = this.userSim.getRandomStateInitialized();
         this.userSim.setStateUser(userSelect, tempStateCode, tempStateName);
-
         userSelect = (userSelect + 1) % this.userCount;
       }
 
@@ -319,6 +316,7 @@ class UserSimulator {
 
   // Writes outstanding states to a state buffer from oldest to newest.
   dequeueNewStatesToBuffer(tempStateBuffer) {
+
     // Applies overflow array if the queue ran out of space, then dequeues per
     // usual afterwards.
     if (this.updateQueueOverflowFlag == 1) {
@@ -358,7 +356,7 @@ class DataTexture {
     if (tempMaxTiles < 100) {
       maxTexels = 500;
     } else {
-      maxTexels = (tempMaxTiles - 1) * 2; // Account for reasonable worst case texture size.
+      maxTexels = (tempMaxTiles - 1) * 2; // Account for worst case texture size.
     }
     this.texBuffer = new ArrayBuffer(maxTexels * 4);
 
@@ -700,12 +698,6 @@ class UserGrid {
     }
     return index;
   }
-
-  // Returns a tile index given an x position and y position. The coordinate
-  // system will be looped as necessary so that no input can be invalid.
-  getTileIndexLooped(tempXPos, tempYPos) {
-
-  }
 }
 
 class ColorTheme {
@@ -815,9 +807,7 @@ class ColorTheme {
 
 // A collection of various functions that are useful for graphics and visualization.
 class VisualAux {
-  'use strict'
   constructor(sineLength) {
-    this.randomSeed = 0;
     this.sineArray = VisualAux.createSineArray(sineLength);
     this.sineScale = 1;
   }
@@ -834,9 +824,6 @@ class VisualAux {
 
   // Creates a lookup array for replacing the Math.sin function.
   static createSineArray(tempRes) {
-    if (tempRes == null) {
-      tempRes = 360;
-    }
     let tempSineArray = new Float32Array(0, tempRes);
     let tempScale = (2 * Math.PI) / tempRes;
     for (let i = 0; i < tempRes - 1; i++) {
@@ -848,10 +835,10 @@ class VisualAux {
   // Uses a non-periodic sum of sinusoids for smooth noise generation.
   sineNoise(inputA, inputB, offsetA, offsetB) {
     var modLength = this.sineArray.length;
-    var cycle_2 = (this.sineScale * (2 * inputA + offsetA)) % modLength;
-    var cycle_PI = (this.sineScale * (Math.PI * inputB + offsetB)) % modLength;
-    var sineNormal = 0.25 * (2.0 + this.sineArray[cycle_2 >> 0] + this.sineArray[cycle_PI >> 0]);
-    return sineNormal;
+    var sineInputPI = ((this.sineScale * (Math.PI * inputA + offsetA)) % modLength) >> 0;
+    var sineInput2 = (this.sineScale * (Math.sqrt(2) * inputB + offsetB)) % modLength;
+    var sineOutput = 0.5 * (this.sineArray[sineInputPI] + this.sineArray[sineInput2 >> 0]);
+    return sineOutput;
   }
 
   // Creates a transformation matrix for scaling our quad's vertices. Needed to
