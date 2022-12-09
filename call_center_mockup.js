@@ -319,7 +319,6 @@ class UserSimulator {
 
   // Writes outstanding states to a state buffer from oldest to newest.
   dequeueNewStatesToBuffer(tempStateBuffer) {
-
     // Applies overflow array if the queue ran out of space, then dequeues per
     // usual afterwards.
     if (this.updateQueueOverflowFlag == 1) {
@@ -845,17 +844,6 @@ class VisualAux {
     }
     return tempSineArray;
   }
-
-  /*
-    // UNFINISHED: messing with color selection. Will be moved later.
-  genRandomNoise(count) {
-    let sineInputPI = (((this.shaderLoop / 255) * this.sineArrayNormal.length) % this.sineArrayNormal.length) >> 0;
-    let sineInput2 = ((count) % this.sineArrayNormal.length) >> 0;;
-    let sineOutput = this.sineArrayNormal[sineInputPI] + this.sineArrayTwo[sineInput2];
-    let sineOutputNormal = 0.5 + 0.25 * sineOutput;
-    return 1000 * sineOutputNormal;
-  }
-  */
 
   // Uses a non-periodic sum of sinusoids for smooth noise generation.
   sineNoise(inputA, inputB, offsetA, offsetB) {
