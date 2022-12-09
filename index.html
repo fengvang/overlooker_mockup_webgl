@@ -6,11 +6,8 @@
   <link href="style.css" rel="stylesheet" type="text/css" />
   <meta charset="utf-8">
   <script src="libraries/twgl-full.min.js"></script>
-</head>
 
-<body>
-  <canvas id="cgl">
-    <script id="vertex_texture" type="notjs">
+  <script id="vertex_texture" type="notjs">
     precision highp float;
     
     attribute vec2 a_position;
@@ -22,7 +19,7 @@
       v_texcoord = 0.5 * a_position.xy + 0.5;
     }
           </script>
-    <script id="vertex_screen" type="notjs">
+  <script id="vertex_screen" type="notjs">
   precision highp float;
 
   attribute vec2 a_position;
@@ -37,7 +34,7 @@
      v_texcoord = 0.5 * a_position.xy + 0.5;
   }
       </script>
-    <script id="fragment_texture" type="notjs">
+  <script id="fragment_texture" type="notjs">
   precision highp float;
 
   uniform vec2 u_resolution;
@@ -62,7 +59,7 @@
     } else if (_code <= 0.2) {
       _color.xyz = u_colortheme[1]; // Available
     } else if (_code <= 0.4) {
-      _color.xyz = u_colortheme[2]; // PreviewingTask
+      _color.xyz = u_colortheme[2]; // previewing
     } else if (_code <= 0.6) {
       _color.xyz = u_colortheme[3]; // OnCall
     } else if (_code <= 0.8) {
@@ -104,7 +101,7 @@
   }
 
   </script>
-    <script id="fragment_screen" type="notjs">
+  <script id="fragment_screen" type="notjs">
   precision highp float;
   
   uniform vec2 u_resolution;
@@ -137,10 +134,16 @@
     vec4 tex_color = texture2D(u_texture_color, v_texcoord);
     gl_FragColor = vec4(mix(u_colortheme[0].rgb, tex_color.rgb, circle_dot(uv)), 1.0);
   }
- 
       </script>
-  </canvas>
+</head>
+
+<canvas id="cgl" >
+</canvas>
+
+<body>
+  <div class="tooltipbody">
+    <span class="tooltip"></span>
+  </div>
 </body>
 <script src="call_center_mockup.js"></script>
-
 </html>
