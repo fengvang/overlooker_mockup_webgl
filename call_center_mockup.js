@@ -1,4 +1,4 @@
-"use strict";
+//"use strict";
 
 const gridCanvas = document.getElementById("cgl");
 const gl = gridCanvas.getContext("webgl", { cull: false, antialias: false });
@@ -43,12 +43,12 @@ function setup() {
   switch (tempLayout) {
     case "growing":
       initBlock = {
-        ticksPerSecond: 20,
+        ticksPerSecond: 100,
         colorMixDuration: 0.5,
-        startingUsers: 1,
+        startingUsers: 100,
         maxUsers: 1000000,
         joinPerTick: 1,
-        updateRatio: 0.6,
+        updateRatio: 0.5,
         themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
@@ -58,16 +58,16 @@ function setup() {
       break;
     default:
       initBlock = {
-        ticksPerSecond: 100,
+        ticksPerSecond: 20,
         colorMixDuration: 0.5,
         startingUsers: 10000,
         maxUsers: 10000,
         joinPerTick: 0,
-        updateRatio: 0.5,
+        updateRatio: 0.025,
         themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
-        tickInterval: 500,
+        tickInterval: 25,
       }
       layout = new LayoutUserGrid(initBlock);
   }
@@ -101,13 +101,12 @@ class LayoutUserGrid {
     requestAnimationFrame(this.render); // Start draw loop.
   }
 
-  updateUniforms(time) {
+  updateUniforms() {
     uniforms.u_resolution = [gl.canvas.width, gl.canvas.height];
     uniforms.u_gridparams = [this.gridMain.parameters.columns, this.gridMain.parameters.rows, this.gridMain.parameters.padding];
     uniforms.u_aafactor = this.texMain.texHeight * 1.5 / gl.canvas.height; // Magic pixel value for anti-aliasing.
     uniforms.u_colortheme = this.layoutTheme.theme;
     uniforms.u_matrix = VisualAux.scaleFragCoords(this.texMain.texWidth, this.texMain.texHeight, "preserve");
-    uniforms.u_time = time;
     uniforms.u_timescale = this.gridAnimations.timescale;
     uniforms.u_pauseoffset = this.gridAnimations.pauseOffset;
     uniforms.u_mix_duration = this.gridAnimations.colorMixDuration;
@@ -120,7 +119,8 @@ class LayoutUserGrid {
   }
 
   render = (time) => {
-    this.gridAnimations.updateTimersDrawloopStart(time);
+    uniforms.u_time = time;
+    this.gridAnimations.updateTimersDrawloopStart(uniforms.u_time);
     this.updateTooltip();
 
     // Checks for a window resize and adjusts the grid + shader dimensions if
@@ -131,7 +131,7 @@ class LayoutUserGrid {
     }
 
     // Gets fresh data to the shaders.
-    this.updateUniforms(time);
+    this.updateUniforms();
 
     // Dequeues the newest state changes from userSim and stores them in a state
     // buffer within gridAnimations.
@@ -467,8 +467,8 @@ class AnimationGL {
     } else if (tempColorMixDuration * tempTicksPerSecond < 1 || tempPulseDuration * tempTicksPerSecond < 1) {
       throw new Error("A shader animation lasts less than a single tick, animations cannot progress.");
     }
-    this.colorMixDuration = tempColorMixDuration * tempTicksPerSecond;
-    this.pulseDuration = tempPulseDuration * tempTicksPerSecond;
+    this.colorMixDuration = Math.round(tempColorMixDuration * tempTicksPerSecond);
+    this.pulseDuration = Math.round(tempPulseDuration * tempTicksPerSecond);
 
     this.bufferCodes = {
       uninit: 253,
@@ -503,32 +503,39 @@ class AnimationGL {
   // Introduces random delay to reduce animation clumping.
   staggerTimers(tempControlTimerArray, animationDuration) {
     for (let i = 0; i < tempControlTimerArray.length; i++) {
-      tempControlTimerArray[i] = this.controlTime + Math.random() * animationDuration;
+      tempControlTimerArray[i] = this.controlTime + 2.5 * Math.random() * animationDuration;
     }
   }
 
   // This function maintains the color mix animation. 
   //
-  // This is a shader based animation and progresses by referencing the end time
-  // stored in texArray[i + 3] with shaderLoop which is passed as a uniform.
+  // This is a shader based animation and progresses by referencing the start
+  // time stored in texArray[i + 3] with shaderLoop.
   //
-  // Since shaderLoop is a looping timer, every animation would repeat itself
-  // without intervention. Control timers are used on the JS side to perform the
-  // necessary updates to determine when texArray should be updated.
+  // Since shaderLoop is a looping clock, every animation would repeat itself
+  // without intervention. Control timers are used on the JS side to pop a new
+  // end state from the buffer or stop the animation if there's nothing to pull
+  // from the buffer.
   updateColorMix(texArray) {
-    let shaderStartTime = this.shaderLoop >> 0;
-    let stopMixCode = 255;
+    let currShaderloop = this.shaderLoop >> 0;
+    let prevShaderloop = (((this.prevTime - this.pauseOffset) * this.timescale) % 255) >> 0;
 
     let counter = 0;
     for (let i = 0; i < texArray.length; i += 4) {
-      let endTime = this.colorMixTimerArray[counter];
+      var endTime = this.colorMixTimerArray[counter];
       if (this.controlTime >= endTime) {
         if (this.stateBufferArray[counter] == this.bufferCodes.empty) {
-          // Stop the animation and reduce chance of animation clumping when
-          // next state arrives.
+          let stopMixCode = 255; // Defined in the fragment_texture shader.
+
+          // Stop the animation and add random delay to reduce chance of
+          // animation clumping when next state arrives.
           texArray[i + 3] = stopMixCode;
           this.colorMixTimerArray[counter] = this.controlTime + this.colorMixDuration * Math.random();
-        } else {
+
+        // Start new animations as close to a new tick as possible to limit
+        // roundoff error from conversion to a UInt8 for texArray.
+        } else if (currShaderloop != prevShaderloop) {
+
           // Make the last end state the new start state.
           texArray[i] = texArray[i + 1];
 
@@ -537,7 +544,7 @@ class AnimationGL {
           this.stateBufferArray[counter] = this.bufferCodes.empty;
 
           // Start the animation.
-          texArray[i + 3] = shaderStartTime;
+          texArray[i + 3] = currShaderloop;
           this.colorMixTimerArray[counter] = this.controlTime + this.colorMixDuration;
         }
       }
