@@ -161,8 +161,6 @@ class LayoutUserGrid {
   }
 
   simLoop() {
-    let userSelect = 0;
-
     let clientClock = setInterval(() => {
       let updatesPerTick = Math.ceil(this.userSim.userArray.length * this.initBlock.updateRatio);
 
@@ -174,8 +172,7 @@ class LayoutUserGrid {
 
       for (let i = 0; i < updatesPerTick; i++) {
         var [tempStateCode, tempStateName] = this.userSim.getRandomStateInitialized();
-        this.userSim.setStateUser(userSelect, tempStateCode, tempStateName);
-        userSelect = (userSelect + 1) % this.userCount;
+        this.userSim.setStateUser(Math.random() * this.userCount >> 0, tempStateCode, tempStateName);
       }
 
       if (this.userCount > this.initBlock.maxUsers) {
@@ -530,7 +527,7 @@ class AnimationGL {
           // Stop the animation and reduce chance of animation clumping when
           // next state arrives.
           texArray[i + 3] = stopMixCode;
-          this.colorMixTimerArray[counter] = this.controlTime + 5 * this.colorMixDuration * Math.random();
+          this.colorMixTimerArray[counter] = this.controlTime + this.colorMixDuration * Math.random();
         } else {
           // Make the last end state the new start state.
           texArray[i] = texArray[i + 1];
