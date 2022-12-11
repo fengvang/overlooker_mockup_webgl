@@ -24,7 +24,7 @@ const glArrays = {
 // Uniforms are constants shared by every vertex and fragment for each shader.
 // twgl sends them to the shaders in a big block statement for convenience.
 const uniforms = {
-  u_time: 0, u_mouse: [0, 0,], u_interval: 0,
+  u_time: 0, u_mouse: [0, 0,], u_mix_duration: 0, u_time_real: 0, u_pauseoffset: 0, u_timescale: 0,
   u_resolution: [0, 0,], u_aafactor: 0, u_gridparams: [0, 0, 0,], u_colortheme: 0,
   u_texture_data: 0, u_texture_color: 0, u_matrix: 0,
 };
@@ -58,7 +58,7 @@ function setup() {
       break;
     default:
       initBlock = {
-        ticksPerSecond: 20,
+        ticksPerSecond: 100,
         colorMixDuration: 0.5,
         startingUsers: 500,
         maxUsers: 500,
@@ -101,14 +101,16 @@ class LayoutUserGrid {
     requestAnimationFrame(this.render); // Start draw loop.
   }
 
-  updateUniforms() {
+  updateUniforms(time) {
     uniforms.u_resolution = [gl.canvas.width, gl.canvas.height];
     uniforms.u_gridparams = [this.gridMain.parameters.columns, this.gridMain.parameters.rows, this.gridMain.parameters.padding];
     uniforms.u_aafactor = this.texMain.texHeight * 1.5 / gl.canvas.height; // Magic pixel value for anti-aliasing.
     uniforms.u_colortheme = this.layoutTheme.theme;
     uniforms.u_matrix = VisualAux.scaleFragCoords(this.texMain.texWidth, this.texMain.texHeight, "preserve");
-    uniforms.u_time = this.gridAnimations.shaderLoop;
-    uniforms.u_interval = this.gridAnimations.colorMixDuration;
+    uniforms.u_time = time;
+    uniforms.u_timescale = this.gridAnimations.timescale;
+    uniforms.u_pauseoffset = this.gridAnimations.pauseOffset;
+    uniforms.u_mix_duration = this.gridAnimations.colorMixDuration;
   }
 
   updateTooltip() {
@@ -129,7 +131,7 @@ class LayoutUserGrid {
     }
 
     // Gets fresh data to the shaders.
-    this.updateUniforms();
+    this.updateUniforms(time);
 
     // Dequeues the newest state changes from userSim and stores them in a state
     // buffer within gridAnimations.
@@ -208,8 +210,6 @@ class LayoutUserGrid {
         this.tooltip[i].style.left = event.pageX + 'px';
         this.tooltip[i].style.top = event.pageY + 'px';
       }
-      // tempColor is in "rgb(r, g, b)" CSS color
-      //console.log('%cuserArray[%s]:', tempColor, mouseOverInfo.index, mouseOverInfo.user);
     }
   }
 
@@ -470,15 +470,8 @@ class AnimationGL {
     } else if (tempColorMixDuration * tempTicksPerSecond < 1 || tempPulseDuration * tempTicksPerSecond < 1) {
       throw new Error("A shader animation lasts less than a single tick, animations cannot progress.");
     }
-
-    if (!Number.isInteger(tempColorMixDuration * tempTicksPerSecond) || !Number.isInteger(tempPulseDuration * tempTicksPerSecond)) {
-      this.colorMixDuration = Math.round(tempColorMixDuration * tempTicksPerSecond);
-      this.pulseDuration = Math.round(tempPulseDuration * tempTicksPerSecond);
-      console.log("A shader animation was rounded to last a discrete number of ticks.");
-    } else {
-      this.colorMixDuration = tempColorMixDuration * tempTicksPerSecond;
-      this.pulseDuration = tempPulseDuration * tempTicksPerSecond;
-    }
+    this.colorMixDuration = tempColorMixDuration * tempTicksPerSecond;
+    this.pulseDuration = tempPulseDuration * tempTicksPerSecond;
 
     this.bufferCodes = {
       uninit: 253,
@@ -491,27 +484,29 @@ class AnimationGL {
 
     this.colorMixTimerArrayBuffer = new ArrayBuffer(tempMaxUsers * 4);
     this.colorMixTimerArray = new Float32Array(this.colorMixTimerArrayBuffer, 0, tempMaxUsers);
-    this.scatterTimers(this.colorMixTimerArray, this.colorMixDuration);
 
     this.pulseTimerArrayBuffer = new ArrayBuffer(tempMaxUsers * 4);
     this.pulseTimerArray = new Float32Array(this.pulseTimerArrayBuffer, 0, tempMaxUsers);
-    this.scatterTimers(this.pulseTimerArray, this.pulseDuration);
 
     this.stateBufferArrayBuffer = new ArrayBuffer(tempMaxUsers);
     this.stateBufferArray = new Uint8Array(this.stateBufferArrayBuffer, 0, tempMaxUsers);
     this.stateBufferArray.set(this.bufferCodes.uninit);
 
     this.runTime = 0;
+    this.controlTime = 0;
+    this.shaderLoop = 0;
     this.prevTime = 0;
     this.deltaTime = 0;
-    this.shaderLoop = 0;
-    this.floatTimestamp = 0;
+    this.pauseOffset = 0;
+
+    this.staggerTimers(this.pulseTimerArray, this.pulseDuration);
+    this.staggerTimers(this.colorMixTimerArray, this.colorMixDuration);
   }
 
   // Introduces random delay to reduce animation clumping.
-  scatterTimers(tempControlTimerArray, animationDuration) {
+  staggerTimers(tempControlTimerArray, animationDuration) {
     for (let i = 0; i < tempControlTimerArray.length; i++) {
-      tempControlTimerArray[i] = -Math.random() * animationDuration;
+      tempControlTimerArray[i] = this.controlTime + Math.random() * animationDuration;
     }
   }
 
@@ -522,21 +517,20 @@ class AnimationGL {
   //
   // Since shaderLoop is a looping timer, every animation would repeat itself
   // without intervention. Control timers are used on the JS side to perform the
-  // necessary updates to texArray to start and end animations.
+  // necessary updates to determine when texArray should be updated.
   updateColorMix(texArray) {
-    let newTimeUInt8 = this.calcNewShaderTime(this.shaderLoop, this.colorMixDuration) >> 0;
+    let shaderStartTime = this.shaderLoop >> 0;
+    let stopMixCode = 255;
 
     let counter = 0;
     for (let i = 0; i < texArray.length; i += 4) {
-      if (this.colorMixTimerArray[counter] >= this.colorMixDuration) {
+      let endTime = this.colorMixTimerArray[counter];
+      if (this.controlTime >= endTime) {
         if (this.stateBufferArray[counter] == this.bufferCodes.empty) {
-          // Prevent the color mix animation from starting over by setting the
-          // start state equal to the end state.
-          texArray[i] = texArray[i + 1];
-
-          // Introduce random delay so that clumped state updates don't cause
-          // clumped animations.
-          this.colorMixTimerArray[counter] = -Math.random() * 0.5 * this.ticksPerSecond;
+          // Stop the animation and reduce chance of animation clumping when
+          // next state arrives.
+          texArray[i + 3] = stopMixCode;
+          this.colorMixTimerArray[counter] = this.controlTime + 5 * this.colorMixDuration * Math.random();
         } else {
           // Make the last end state the new start state.
           texArray[i] = texArray[i + 1];
@@ -545,46 +539,54 @@ class AnimationGL {
           texArray[i + 1] = this.stateBufferArray[counter];
           this.stateBufferArray[counter] = this.bufferCodes.empty;
 
-          // Update the shader animation end time.
-          texArray[i + 3] = newTimeUInt8;
-
-          // Restart the control timer.
-          this.colorMixTimerArray[counter] = this.deltaTime * this.timescale;
+          // Start the animation.
+          texArray[i + 3] = shaderStartTime;
+          this.colorMixTimerArray[counter] = this.controlTime + this.colorMixDuration;
         }
-      } else {
-        // Progress the control timer.
-        this.colorMixTimerArray[counter] += this.deltaTime * this.timescale;
       }
       counter++;
     }
   }
 
-  calcNewShaderTime(currTime, addedTime) {
-    let tempShaderLoop = 0;
-    let newShaderLoop = currTime + addedTime;
-
-    if (newShaderLoop >= 256.0) {
-      tempShaderLoop = newShaderLoop % 256.0; // Avoid % until necessary.
-    } else {
-      tempShaderLoop = newShaderLoop;
-    }
-    return tempShaderLoop;
-  }
-
   // Call at the beginning of the draw loop to update timers.
   updateTimersDrawloopStart(time) {
     this.deltaTime = time - this.prevTime;
-    if (this.deltaTime > 500) {
-      this.deltaTime = 0; // Pause animations while minimized.
+
+    // Adjusts time to account for minimizing. Causes animations to pause if FPS
+    // drops below 10.
+    if (this.deltaTime > 100) {
+      this.pauseOffset += this.deltaTime;
     } else {
-      this.runTime += this.deltaTime * 0.001;
-      this.shaderLoop = this.calcNewShaderTime(this.shaderLoop, this.deltaTime * this.timescale);
+      this.runTime = time * 0.001;
+      this.controlTime = (time - this.pauseOffset) * this.timescale;
+      this.shaderLoop = this.controlTime % 255.0;
     }
   }
 
   // Call at the end of the draw loop to get a comparison value for deltaTime.
   updateTimersDrawloopEnd(time) {
     this.prevTime = time;
+  }
+
+  shaderDebugger(timestamp, control) {
+    let start = timestamp;
+    let end = 0;
+    let duration = this.colorMixDuration;
+    let progress = 0.0;
+
+    if (start == 255.0) {
+
+    }
+    else if ((start + duration >= 255.0) && (this.shaderLoop < 255.0 + duration - start)) {
+      start = start - 254.0;
+      end = start + duration;
+      progress = VisualAux.constrain(0, 1, (this.shaderLoop - start) / (end - start));
+      console.log(progress, this.shaderLoop, end)
+    } else if (start + duration >= 255.0) {
+      end = start + duration;
+      progress = VisualAux.constrain(0, 1, (this.shaderLoop - start) / (end - start));
+      console.log(progress, this.shaderLoop, end)
+    }
   }
 }
 
