@@ -37,9 +37,7 @@
   <script id="fragment_texture" type="notjs">
   precision highp float;
 
-  uniform float u_time;
-  uniform float u_pauseoffset;
-  uniform float u_timescale;
+  uniform float u_timerloop;
   uniform float u_mix_duration;
   uniform vec2 u_resolution;
   uniform vec2 u_mouse;
@@ -98,7 +96,7 @@
     float colormix_start = 255.0 * tex_data.w;
 
     // Scale and loop raw time within shader for a more accurate timer.
-    float timer = mod(((u_time - u_pauseoffset) * u_timescale), 255.0);
+    float timer = u_timerloop;
     float mix_amount = mapTime(colormix_start, u_mix_duration, timer);
 
     vec3 start_color = matchColorCode(tex_data.x);
