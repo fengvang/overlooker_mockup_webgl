@@ -37,65 +37,72 @@
   <script id="fragment_texture" type="notjs">
   precision highp float;
 
+  uniform float u_time;
+  uniform float u_pauseoffset;
+  uniform float u_timescale;
+  uniform float u_mix_duration;
   uniform vec2 u_resolution;
   uniform vec2 u_mouse;
-  uniform float u_time;
-  uniform float u_interval;
   uniform vec3 u_colortheme[6];
   uniform sampler2D u_texture_data;
-
   varying vec2 v_texcoord;
 
   // Matches the data texture's state codes with the colors from the theme.
-  vec4 matchColorCode(in float _code) {
-    vec4 _color = vec4(0.0);
+  vec3 matchColorCode(in float _code) {
+    vec3 _color = vec3(0.0);
     if (_code == 0.0) {         
       if (u_colortheme[0].r + u_colortheme[0].g + u_colortheme[0].b < 1.5) {
-        _color = vec4(u_colortheme[0].rgb + vec3(0.15), 1.0);
+        _color = u_colortheme[0] + vec3(0.15);
       } else {
-        _color = vec4(u_colortheme[0].rgb - vec3(0.15), 1.0);
-      }                         // neverInitialized
-      _color.xyz = clamp(_color.rgb, 0.0, 1.0); 
-    } else if (_code <= 0.2) {
-      _color.xyz = u_colortheme[1]; // Available
-    } else if (_code <= 0.4) {
-      _color.xyz = u_colortheme[2]; // previewing
-    } else if (_code <= 0.6) {
-      _color.xyz = u_colortheme[3]; // OnCall
-    } else if (_code <= 0.8) {
-      _color.xyz = u_colortheme[4]; // AfterCall
+        _color = u_colortheme[0] - vec3(0.15);
+      }                         
+      _color = clamp(_color, 0.0, 1.0); // uninit
+    } else if (_code == 0.2) {
+      _color = u_colortheme[1];         // Available
+    } else if (_code == 0.4) {
+      _color = u_colortheme[2];         // previewing
+    } else if (_code == 0.6) {
+      _color = u_colortheme[3];         // OnCall
+    } else if (_code == 0.8) {
+      _color = u_colortheme[4];         // AfterCall
     } else {
-      _color.xyz = u_colortheme[5]; // LoggedOut
+      _color = u_colortheme[5];         // LoggedOut
     }
-    _color.w = 1.0;
     return _color;
   }
 
-  // References an animation's endpoint and duration to a looping timer to get
+  // References an animation's start time and duration to a looping timer to get
   // its normalized progress.
-  float mapTime (float start, float end, float duration, float timer) {
-    float reference_timer = timer;
-    float time_left = 256.0 - reference_timer;
-
-    // An animation with an endpoint less than its duration spans the beginning
-    // and ending regions of the timer number line. Fixed by projecting
-    // reference_timer left of the number line once it hits the animation's
-    // starting point.
-    if (end < duration && time_left <= duration - end) {
-        reference_timer = -time_left;
+  float mapTime (float start, float duration, float timer) {
+    float end = 0.0;
+    float progress = 0.0;
+    // Stop animation code.
+    if (start == 255.0) {
+      progress = 1.0;
+    } else if (timer < duration && start > timer) {
+      // If the animation spanned both ends of the animation number line and the
+      // timer has restarted, project the start time backwards before 0.
+      start = start - 254.0;
+      end = start + duration;
+      progress = clamp((timer - start) / (end - start), 0.0, 1.0);
+    } else {
+      end = start + duration;
+      progress = clamp((timer - start) / (end - start), 0.0, 1.0);
     }
-    return clamp((reference_timer - start) / (end - start), 0.0, 1.0);
+    return progress;
   }
 
   void main() {
-    vec4 tex_color = texture2D(u_texture_data, v_texcoord);
-    float colormix_end = 255.0 * tex_color.w;
-    float colormix_start = colormix_end - u_interval;
-    float mix_amount = mapTime(colormix_start, colormix_end, u_interval, u_time);
+    vec4 tex_data = texture2D(u_texture_data, v_texcoord);
+    float colormix_start = 255.0 * tex_data.w;
 
-    vec4 start_color = matchColorCode(tex_color.x);
-    vec4 end_color = matchColorCode(tex_color.y);
-    vec4 mixed = vec4(mix(start_color.rgb, end_color.rgb, mix_amount), 1.0);
+    // Scale and loop timer within shader for a more accurate timer.
+    float timer = mod(((u_time - u_pauseoffset) * u_timescale), 255.0);
+    float mix_amount = mapTime(colormix_start, u_mix_duration, timer);
+
+    vec3 start_color = matchColorCode(tex_data.x);
+    vec3 end_color = matchColorCode(tex_data.y);
+    vec4 mixed = vec4(mix(start_color, end_color, mix_amount), 1.0);
     
     gl_FragColor = mixed;
   }
@@ -104,9 +111,9 @@
   <script id="fragment_screen" type="notjs">
   precision highp float;
   
+  uniform float u_aafactor;
   uniform vec2 u_resolution;
   uniform vec2 u_mouse;
-  uniform float u_aafactor;
   uniform vec3 u_gridparams;
   uniform vec3 u_colortheme[6];
   uniform sampler2D u_texture_color;
@@ -137,7 +144,7 @@
       </script>
 </head>
 
-<canvas id="cgl" >
+<canvas id="cgl">
 </canvas>
 
 <body>
@@ -146,4 +153,5 @@
   </div>
 </body>
 <script src="call_center_mockup.js"></script>
+
 </html>
