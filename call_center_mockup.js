@@ -60,8 +60,8 @@ function setup() {
       initBlock = {
         ticksPerSecond: 100,
         colorMixDuration: 0.5,
-        startingUsers: 500,
-        maxUsers: 500,
+        startingUsers: 10000,
+        maxUsers: 10000,
         joinPerTick: 0,
         updateRatio: 0.5,
         themeSelection: "RandomHSV",
