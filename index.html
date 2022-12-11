@@ -81,8 +81,9 @@
       progress = 1.0;
     } else if (timer < duration && start > timer) {
       // If the animation spanned both ends of the animation number line and the
-      // timer has restarted, project the start time backwards before 0.
-      start = start - 254.0;
+      // timer has restarted, project the start time backwards by the same
+      // amount that the timer was moved by mod.
+      start = start - 255.0;
       end = start + duration;
       progress = clamp((timer - start) / (end - start), 0.0, 1.0);
     } else {
@@ -96,7 +97,7 @@
     vec4 tex_data = texture2D(u_texture_data, v_texcoord);
     float colormix_start = 255.0 * tex_data.w;
 
-    // Scale and loop timer within shader for a more accurate timer.
+    // Scale and loop raw time within shader for a more accurate timer.
     float timer = mod(((u_time - u_pauseoffset) * u_timescale), 255.0);
     float mix_amount = mapTime(colormix_start, u_mix_duration, timer);
 
