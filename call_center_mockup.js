@@ -1,4 +1,4 @@
-//"use strict";
+"use strict";
 
 const gridCanvas = document.getElementById("cgl");
 const gl = gridCanvas.getContext("webgl", { cull: false, antialias: false });
@@ -24,7 +24,7 @@ const glArrays = {
 // Uniforms are constants shared by every vertex and fragment for each shader.
 // twgl sends them to the shaders in a big block statement for convenience.
 const uniforms = {
-  u_time: 0, u_mouse: [0, 0,], u_mix_duration: 0, u_time_real: 0, u_pauseoffset: 0, u_timescale: 0,
+  u_timerloop: 0, u_mouse: [0, 0,], u_mix_duration: 0, 
   u_resolution: [0, 0,], u_aafactor: 0, u_gridparams: [0, 0, 0,], u_colortheme: 0,
   u_texture_data: 0, u_texture_color: 0, u_matrix: 0,
 };
@@ -58,7 +58,7 @@ function setup() {
       break;
     default:
       initBlock = {
-        ticksPerSecond: 20,
+        ticksPerSecond: 50,
         colorMixDuration: 0.5,
         startingUsers: 10000,
         maxUsers: 10000,
@@ -107,9 +107,8 @@ class LayoutUserGrid {
     uniforms.u_aafactor = this.texMain.texHeight * 1.5 / gl.canvas.height; // Magic pixel value for anti-aliasing.
     uniforms.u_colortheme = this.layoutTheme.theme;
     uniforms.u_matrix = VisualAux.scaleFragCoords(this.texMain.texWidth, this.texMain.texHeight, "preserve");
-    uniforms.u_timescale = this.gridAnimations.timescale;
-    uniforms.u_pauseoffset = this.gridAnimations.pauseOffset;
     uniforms.u_mix_duration = this.gridAnimations.colorMixDuration;
+    uniforms.u_timerloop = this.gridAnimations.shaderLoop;
   }
 
   updateTooltip() {
@@ -119,8 +118,7 @@ class LayoutUserGrid {
   }
 
   render = (time) => {
-    uniforms.u_time = time;
-    this.gridAnimations.updateTimersDrawloopStart(uniforms.u_time);
+    this.gridAnimations.updateTimersDrawloopStart(time);
     this.updateTooltip();
 
     // Checks for a window resize and adjusts the grid + shader dimensions if
@@ -510,7 +508,7 @@ class AnimationGL {
   // This function maintains the color mix animation. 
   //
   // This is a shader based animation and progresses by referencing the start
-  // time stored in texArray[i + 3] with shaderLoop.
+  // time stored in texArray[i + 3] and animation duration to shaderLoop.
   //
   // Since shaderLoop is a looping clock, every animation would repeat itself
   // without intervention. Control timers are used on the JS side to pop a new
@@ -532,8 +530,8 @@ class AnimationGL {
           texArray[i + 3] = stopMixCode;
           this.colorMixTimerArray[counter] = this.controlTime + this.colorMixDuration * Math.random();
 
-        // Start new animations as close to a new tick as possible to limit
-        // roundoff error from conversion to a UInt8 for texArray.
+          // Start new animations as close to a new tick as possible to limit
+          // roundoff error from conversion to a Uint8 for texArray.
         } else if (currShaderloop != prevShaderloop) {
 
           // Make the last end state the new start state.
@@ -556,15 +554,13 @@ class AnimationGL {
   updateTimersDrawloopStart(time) {
     this.deltaTime = time - this.prevTime;
 
-    // Adjusts time to account for minimizing. Causes animations to pause if FPS
-    // drops below 10.
-    if (this.deltaTime > 100) {
+    // Adjusts time to pause animations while minimized.
+    if (this.deltaTime > 200) {
       this.pauseOffset += this.deltaTime;
-    } else {
-      this.runTime = time * 0.001;
-      this.controlTime = (time - this.pauseOffset) * this.timescale;
-      this.shaderLoop = this.controlTime % 255.0;
     }
+    this.runTime = time * 0.001;
+    this.controlTime = (time - this.pauseOffset) * this.timescale;
+    this.shaderLoop = this.controlTime % 255.0;
   }
 
   // Call at the end of the draw loop to get a comparison value for deltaTime.
