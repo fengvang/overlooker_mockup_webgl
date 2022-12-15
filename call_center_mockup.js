@@ -24,7 +24,7 @@ const glArrays = {
 // Uniforms are constants shared by every vertex and fragment for each shader.
 // twgl sends them to the shaders in a big block statement for convenience.
 const uniforms = {
-  u_timerloop: 0, u_mouse: [0, 0,], u_mix_duration: 0,
+  u_timerloop: 0, u_mouse: [0, 0,], u_mix_duration: 0, u_pulse_duration: 0,
   u_resolution: [0, 0,], u_aafactor: 0, u_gridparams: [0, 0, 0,], u_colortheme: 0,
   u_texture_data: 0, u_texture_color: 0, u_matrix: 0,
 };
@@ -55,11 +55,11 @@ function setup() {
       initBlock = {
         ticksPerSecond: 50,
         colorMixDuration: 0.5,
-        pulseDuration : 1.0,
+        pulseDuration: 2.0,
         startingUsers: 100,
         maxUsers: 100000,
         joinPerTick: 1,
-        updateRatio: 0.075,
+        updateRatio: 0.0,
         themeSelection: "RandomHSV",
         dotPadding: 0.15,
         tilingSpanMode: "maxArea",
@@ -69,9 +69,9 @@ function setup() {
       break;
     default:
       initBlock = {
-        ticksPerSecond: 50,
+        ticksPerSecond: 20,
         colorMixDuration: 0.5,
-        pulseDuration : 1.0,
+        pulseDuration: 1,
         startingUsers: 10000,
         maxUsers: 10000,
         joinPerTick: 0,
@@ -135,6 +135,7 @@ class LayoutUserGrid {
     // Pops state from the buffer, sets animation start time, and sets control
     // timer for users that have completed their color mixing animation.
     this.gridAnimations.updateColorMix(this.texMain.texArray);
+    this.gridAnimations.updatePulse(this.texMain.texArray, this.userCount);
 
     // Creates a new texture from texArray; contains all changes from the
     // previous step since it was passed by reference.
@@ -184,6 +185,7 @@ class LayoutUserGrid {
     uniforms.u_colortheme = this.layoutTheme.theme;
     uniforms.u_matrix = VisualAux.scaleFragCoords(this.texMain.texWidth, this.texMain.texHeight, "preserve");
     uniforms.u_mix_duration = this.gridAnimations.colorMixDuration;
+    uniforms.u_pulse_duration = this.gridAnimations.pulseDuration;
     uniforms.u_timerloop = this.gridAnimations.shaderLoop;
   }
 
@@ -390,7 +392,7 @@ class UserSimulator {
 // 
 // texArray is used to create a dataTexture each frame. It is a Uint8Array
 // containing 4 rgba channels per user w/ the following format: 
-// [prevStateCode, currStateCode, pulseStartTime, colorMixStartTime]
+// [prevStateCode, currStateCode,colorMixStartTime, pulseStartTime]
 //
 // First shader stage: 
 // State codes are matched to their color thru a color theme uniform, while
@@ -508,7 +510,7 @@ class DataTexture {
 // which is processed each frame to set the colors for each user.
 //
 // texArray has the following format:
-// [prevStateCode, currStateCode, pulseStartTime, colorMixStartTime]
+// [prevStateCode, currStateCode,colorMixStartTime, pulseStartTime]
 //
 // A state buffer containing the most recent state code is maintained for each
 // user and popped to perform the colorMix animation once the preceding
@@ -537,7 +539,7 @@ class DataTexture {
 // Control timers record the current time + the animation's duration. If
 // controlTime exceeds this value the animation is over and texArray is updated
 // to stop the animation, start the next one, etc.
- 
+
 class AnimationGL {
   constructor(tempTicksPerSecond, tempColorMixDuration, tempPulseDuration, tempMaxUsers) {
 
@@ -562,6 +564,7 @@ class AnimationGL {
     this.ticksPerSecond = tempTicksPerSecond;
     this.timescale = tempTicksPerSecond * 0.001;
     this.maxUsers = tempMaxUsers;
+    this.stopAnimationCode = 255; // Defined in the fragment_texture shader.
 
     // TODO: Use views instead of arrays to handle issues w/ big-endian devices.
     this.colorMixTimerArrayBuffer = new ArrayBuffer(tempMaxUsers * 4);
@@ -570,9 +573,14 @@ class AnimationGL {
     this.pulseTimerArrayBuffer = new ArrayBuffer(tempMaxUsers * 4);
     this.pulseTimerArray = new Float32Array(this.pulseTimerArrayBuffer, 0, tempMaxUsers);
 
+    this.pulseStaggerOffsetArray = new Uint8Array(tempMaxUsers);
+    this.colorMixStaggerOffsetArray = new Uint8Array(tempMaxUsers);
+
+    this.emptyBufferCode = 254;
+    this.uninitBufferCode = 253;
     this.stateBufferArrayBuffer = new ArrayBuffer(tempMaxUsers);
     this.stateBufferArray = new Uint8Array(this.stateBufferArrayBuffer, 0, tempMaxUsers);
-    this.stateBufferArray.set(this.bufferCodes.uninit);
+    this.stateBufferArray.set(this.uninitBufferCode);
 
     this.runTime = 0;
     this.controlTime = 0;
@@ -580,22 +588,50 @@ class AnimationGL {
     this.prevTime = 0;
     this.deltaTime = 0;
     this.pauseOffset = 0;
+    this.staggerDuration = 1.5;
 
-    this.staggerTimers(this.pulseTimerArray, this.pulseDuration);
-    this.staggerTimers(this.colorMixTimerArray, this.colorMixDuration);
+    this.staggerTimers(this.pulseStaggerOffsetArray, this.staggerDuration);
+    this.staggerTimers(this.colorMixStaggerOffsetArray, this.staggerDuration);
   }
 
-  // Introduces random delay to reduce animation clumping.
-  staggerTimers(tempControlTimerArray, animationDuration) {
-    for (let i = 0; i < tempControlTimerArray.length; i++) {
-      tempControlTimerArray[i] = this.controlTime + 2.5 * Math.random() * animationDuration;
+  staggerTimers(countdownArray, spread) {
+    for (let i = 0; i < countdownArray.length; i++) {
+      countdownArray[i] = (this.ticksPerSecond * Math.random() * spread) >> 0;
+    }
+  }
+
+  updatePulse(texArray, userCount) {
+    let currShaderloop = this.shaderLoop >> 0;
+    let prevShaderloop = (((this.prevTime - this.pauseOffset) * this.timescale) % 255) >> 0;
+
+    let counter = 0;
+    for (let i = 0; i < userCount * 4; i += 4) {
+      var endTime = this.pulseTimerArray[counter];
+      if (this.controlTime >= endTime) {
+      // Stop the animation immediately on end time, apply delay
+      // before starting the next one.
+        texArray[i + 3] = this.stopAnimationCode;
+        if (currShaderloop != prevShaderloop) {
+          if (this.pulseStaggerOffsetArray[counter] == 0) {
+            texArray[i + 3] = this.shaderLoop;
+            this.pulseTimerArray[counter] = this.controlTime + this.pulseDuration;
+          } else {
+            this.pulseStaggerOffsetArray[counter] -= 1;
+          }
+        }
+      }
+      counter++;
+    }
+
+    for (let i = (userCount - 1) * 4; i <= texArray.length; i++) {
+      texArray[i + 3] = this.stopAnimationCode;
     }
   }
 
   // This function maintains the colorMix animation.
   //
   // texArray has the following format:
-  // [prevStateCode, currStateCode, pulseStartTime, colorMixStartTime]
+  // [prevStateCode, currStateCode, colorMixStartTime, pulseStartTime]
   //
   // This animation does a linear mix from the color corresponding to
   // prevStateCode to the color corresponding to currStateCode.
@@ -605,31 +641,37 @@ class AnimationGL {
 
     let counter = 0;
     for (let i = 0; i < texArray.length; i += 4) {
-
       var endTime = this.colorMixTimerArray[counter];
+
       if (this.controlTime >= endTime) {
-        if (this.stateBufferArray[counter] == this.bufferCodes.empty) {
-          let stopMixCode = 255; // Defined in the fragment_texture shader.
+        // Stop the animation immediately on end time, apply delay
+        // before starting the next one.
+        texArray[i + 2] = this.stopAnimationCode;
 
-          // There's nothing to do, so stop the animation and add random delay
-          // to reduce chance of animation clumping when next state arrives.
-          texArray[i + 3] = stopMixCode;
-          this.colorMixTimerArray[counter] = this.controlTime + this.colorMixDuration * 0.5 * Math.random();
+        // Set new timers as close to the newest tick to reduce error from
+        // flooring shaderLoop.
+        if (currShaderloop != prevShaderloop) {
+          // Only update if the stagger countdown has finished, needed to
+          // prevent animations from clumping.
+          if (this.colorMixStaggerOffsetArray[counter] == 0) {
+            if (this.stateBufferArray[counter] == this.emptyBufferCode) {
+              // Add new animation delay if there's nothing to do.
+              this.colorMixStaggerOffsetArray[counter] = (this.ticksPerSecond * Math.random() * this.staggerDuration) >> 0;
+            } else {
+              // Make the last end state the new start state.
+              texArray[i] = texArray[i + 1];
 
-          // Start the next animation as close to a new tick as possible to
-          // limit error from flooring shaderLoop for texArray.
-        } else if (currShaderloop != prevShaderloop) {
+              // Pop from the state buffer.
+              texArray[i + 1] = this.stateBufferArray[counter];
+              this.stateBufferArray[counter] = this.emptyBufferCode;
 
-          // Make the last end state the new start state.
-          texArray[i] = texArray[i + 1];
-
-          // Pop from the state buffer.
-          texArray[i + 1] = this.stateBufferArray[counter];
-          this.stateBufferArray[counter] = this.bufferCodes.empty;
-
-          // Start the animation.
-          texArray[i + 3] = currShaderloop;
-          this.colorMixTimerArray[counter] = this.controlTime + this.colorMixDuration;
+              // Start the next animation.
+              texArray[i + 2] = currShaderloop;
+              this.colorMixTimerArray[counter] = this.controlTime + this.colorMixDuration;
+            }
+          } else {
+            this.colorMixStaggerOffsetArray[counter] -= 1;
+          }
         }
       }
       counter++;
