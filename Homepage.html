@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+    <title>Overlooker</title>
+    <meta charset="utf-8">
+    <script src="libraries/twgl-full.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <script id="vertex_texture" type="notjs">
+        precision highp float;
+        
+        attribute vec2 a_position;
+        attribute vec2 a_texcoord;
+        varying vec2 v_texcoord;
+          
+        void main() {
+          gl_Position = vec4(a_position, 1.0, 1.0);
+          v_texcoord = 0.5 * a_position.xy + 0.5;
+        }
+      </script>
+
+    <script id="vertex_screen" type="notjs">
+      precision highp float;
+    
+      attribute vec2 a_position;
+      attribute vec2 a_texcoord;
+      uniform mat3 u_matrix;
+      varying vec2 v_texcoord;
+      
+      void main() {
+        // Transforms the x and y coordinates of the quad's vertices to preserve
+        // aspect ratio of the tiles.
+         gl_Position = vec4(u_matrix * vec3(a_position, 1.0), 1.0);
+         v_texcoord = 0.5 * a_position.xy + 0.5;
+      }
+      </script>
+
+    <script id="fragment_texture" type="notjs">
+      precision highp float;
+    
+      uniform float u_timerloop;
+      uniform float u_mix_duration;
+      uniform vec2 u_resolution;
+      uniform vec2 u_mouse;
+      uniform vec3 u_colortheme[6];
+      uniform sampler2D u_texture_data;
+      varying vec2 v_texcoord;
+    
+      // Matches the data texture's state codes with the colors from the theme.
+      vec3 matchColorCode(in float _code) {
+        vec3 _color = vec3(0.0);
+        if (_code <= 0.0) {         
+          if (u_colortheme[0].r + u_colortheme[0].g + u_colortheme[0].b < 1.5) {
+            _color = u_colortheme[0] + vec3(0.15);
+          } else {
+            _color = u_colortheme[0] - vec3(0.15);
+          }                         
+          _color = clamp(_color, 0.0, 1.0); // uninit
+        } else if (_code <= 0.2) {
+          _color = u_colortheme[1];         // Available
+        } else if (_code <= 0.4) {
+          _color = u_colortheme[2];         // previewing
+        } else if (_code <= 0.6) {
+          _color = u_colortheme[3];         // OnCall
+        } else if (_code <= 0.8) {
+          _color = u_colortheme[4];         // AfterCall
+        } else {
+          _color = u_colortheme[5];         // LoggedOut
+        }
+        return _color;
+      }
+    
+      // References an animation's start time and duration to a looping timer to get
+      // its normalized progress.
+      float mapTime (in float start, in float duration, in float timer) {
+        float end = 0.0;
+        float progress = 0.0;
+        if (start == 255.0) {
+          progress = 1.0;
+        } else if (timer < start && start + duration >= 255.0) {
+          // If the animation spans both ends of the animation number line and the
+          // timer has restarted, project the start time backwards by the same
+          // amount that the timer was moved by mod.
+          start = start - 255.0;
+          end = start + duration;
+          progress = clamp((timer - start) / (end - start), 0.0, 1.0);
+        } else {
+          end = start + duration;
+          progress = clamp((timer - start) / (end - start), 0.0, 1.0);
+        }
+        return progress;
+      }
+    
+      void main() {
+        vec4 tex_data = texture2D(u_texture_data, v_texcoord);
+        float colormix_start = 255.0 * tex_data.z;
+    
+        vec3 start_color = matchColorCode(tex_data.x);
+        vec3 end_color = matchColorCode(tex_data.y);
+        float mix_amount = mapTime(colormix_start, u_mix_duration, u_timerloop);
+        vec3 mixed = mix(start_color, end_color, mix_amount);
+    
+        // Pass thru the pulse animation start time, since it's a per pixel effect
+        // and texture_fragment is per texel.
+        gl_FragColor = vec4(mixed, tex_data.w);
+      }
+      </script>
+
+    <script id="fragment_screen" type="notjs">
+      precision highp float;
+      
+      uniform float u_timerloop;
+      uniform float u_aafactor;
+      uniform float u_pulse_duration;
+      uniform vec2 u_resolution;
+      uniform vec2 u_mouse;
+      uniform vec3 u_gridparams;
+      uniform vec3 u_colortheme[6];
+      uniform sampler2D u_texture_color;
+      varying vec2 v_texcoord;
+    
+      // References an animation's start time and duration to a looping timer to get
+      // its normalized progress.
+      float mapTime (in float start, in float duration, in float timer) {
+        float end = 0.0;
+        float progress = 0.0;
+        if (start == 255.0) {
+          progress = 1.0;
+        } else if (timer < start && start + duration >= 255.0) {
+          // If the animation spans both ends of the animation number line and the
+          // timer has restarted, project the start time backwards by the same
+          // amount that the timer was moved by mod.
+          start = start - 255.0;
+          end = start + duration;
+          progress = clamp((timer - start) / (end - start), 0.0, 1.0);
+        } else {
+          end = start + duration;
+          progress = clamp((timer - start) / (end - start), 0.0, 1.0);
+        }
+        return progress;
+      }
+    
+      // Uses the dot product of the input coord and the circle's center to test if
+      // a pixel lies on the circle.
+      float circle_dot(in vec2 _uv, in float radius, in float feathering) {
+        vec2 centered = _uv.xy * vec2(2.0) - vec2(1.0);
+        float d = 0.5 * dot(centered, centered) + radius;
+        return smoothstep(0.5 + feathering, 0.5 - feathering, d);
+      }
+    
+      void main() {
+        // The quad spans the screen, so uv coords are used instead of frag coords
+        // to keep each circle aligned with its color.
+        vec2 uv = v_texcoord.xy;
+        vec4 tex_color = texture2D(u_texture_color, v_texcoord);
+    
+        // Draws a grid by looping the screenspace horizontally by the number of
+        // grid columns and vertically by the number of grid rows.
+        uv.xy = fract(uv.xy * u_gridparams.xy);
+    
+        float pulse_progress = mapTime(tex_color.w * 255.0, u_pulse_duration, u_timerloop);
+        float pulse_normal = sin(pulse_progress * 3.14159265359);
+        vec3 edge_color = clamp(tex_color.rgb + 0.5 * pulse_normal, 0.0, 1.5);
+        vec3 circle_color = vec3(mix(edge_color, tex_color.rgb, circle_dot(uv, 0.25, 1.0)));
+    
+        float main_circle = circle_dot(uv, u_gridparams.z * 0.5, u_aafactor);
+    
+        vec3 bg_color = u_colortheme[0].rgb;
+        gl_FragColor = vec4(mix(bg_color, circle_color, main_circle), 1.0);
+      }
+      </script>
+
+    <style>
+        body {
+            padding-top: 150px;
+            padding-bottom: 40px;
+            font-family: Arial;
+        }
+
+        /*properties header*/
+        .container {
+            width: 80%;
+            margin: 0 auto;
+        }
+
+        /*for the  footer*/
+        .container-ft {
+            width: 80%;
+            margin: 0px 10px;
+        }
+
+        .fixed-header,
+        .fixed-footer {
+            width: 100%;
+            position: fixed;
+            background: #0E1721;
+            /* background: linear-gradient(#2b5876,#4e4376);*/
+            /* background: #333;*/
+            color: #fff;
+            padding: 20px 0;
+        }
+
+        .fixed-header {
+            top: 0;
+            left: 0;
+        }
+
+        .fixed-footer {
+            bottom: 0;
+            left: 0;
+        }
+
+        nav a {
+            color: #fff;
+            text-decoration: none;
+            padding: 6px 260px;
+            padding-left: 180px;
+            display: inline-block;
+            font-size: 20px;
+        }
+
+        .container p {
+            line-height: 200px;
+        }
+
+        /*this is where the contents of the page will go*/
+        #parent {
+            display: flex;
+            flex-wrap: wrap;
+            height: 750px;
+            gap: 10px;
+            align-items: stretch;
+            margin-top: -50px;
+
+        }
+
+        #legend {
+            width: 150px;
+            background: linear-gradient(118deg, #141e30, #243b55);
+            border: 1px #0E1721 solid;
+            padding-right: 8px;
+            padding-left: 22px;
+            padding-top: 15px;
+            margin: -33px -8px -39px -10px;
+        }
+
+        /*This is for the search bar*/
+        .search {
+            width: 100%;
+            left: -5px;
+            bottom: -14px;
+            position: relative;
+            display: flex;
+
+        }
+
+        .searchName {
+            width: 100%;
+            border: 2px solid #000000;
+            border-right: none;
+            padding: 5px;
+            height: 20px;
+            border-radius: 5px 0 0 5px;
+            outline: none;
+        }
+
+        .searchButton {
+            width: 40px;
+            border: 2px solid #000000;
+            background: #424051;
+            text-align: center;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+            font-size: 20px;
+        }
+
+        .wrap {
+            position: inherit;
+            top: 50%;
+            left: 50%;
+        }
+
+        /*the dots will go here*/
+        #dots {
+            flex: 1;
+            background-repeat: no-repeat;
+            background-size: cover;
+            border: 1px black solid;
+            text-align: center;
+            overflow-y: hidden;
+            margin-top: -33px;
+            margin-left: -9px;
+            border-right-width: 0px;
+            margin-bottom: -39px;
+        }
+
+        h1 {
+            font-size: 25px;
+            color: #dfdfdf;
+        }
+
+        .tooltipbody:hover .tooltip {
+            display: block;
+        }
+
+        .tooltip {
+            display: none;
+            background: #C8C8C8;
+            margin-left: 28px;
+            padding: 10px;
+            position: absolute;
+            z-index: 1000;
+            width: max-content;
+            max-width: 200px;
+            height: max-content;
+        }
+
+        .tooltipbody {
+            margin: 0px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="fixed-header">
+        <div class="container">
+            <nav>
+                <a href="#home">Home</a>
+                <a href="#contact">Contact</a>
+                <a href="#login">Log in</a>
+            </nav>
+        </div>
+    </div>
+    <div id="parent">
+        <canvas id="dots">
+            <div class="tooltipbody">
+                <span class="tooltip"></span>
+            </div>
+        </canvas>
+        <div id="legend">
+            <form action="#" style="margin-left: -10px;">
+                <h1>Agent Status</h1>
+                <p style="color:white;">
+                    <input type="radio" id="available" name="status" value="avail" />
+                    <label for="available">Available</label><br />
+                </p>
+                <p style="color:white;">
+                    <input type="radio" id="on_call" name="status" value="on call" />
+                    <label for="on_call">On Call</label><br />
+                </p>
+                <p style="color:white;">
+                    <input type="radio" id="idle" name="status" value="idle" />
+                    <label for="idle">Idle</label><br />
+                </p>
+                <p style="color:white;">
+                    <input type="radio" id="off_call" name="status" value="off call">
+                    <label for="off_call">Off Call</label><br />
+                </p>
+                <p style="color:white">
+                    <input type="radio" id="logged_out" name="status" value="logged out" />
+                    <label for="logged_out">Logged Out</label><br />
+                </p>
+                <p>
+                    <input type="submit" value="Submit" style="margin:10px;" />
+                </p>
+            </form>
+            <div class="wrap">
+                <div class="search">
+                    <input type="text" class="searchName" placeholder="Type" />
+                    <button type="submit" class="searchButton"></button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="fixed-footer">
+        <div class="container-ft">Copyright &copy; 2022</div>
+    </div>
+</body>
+<script src="call_center_mockup.js"></script>
+
+</html>

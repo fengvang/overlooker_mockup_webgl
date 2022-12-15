@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Overlooker Log In</title>
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        html, body {
+            height: 100%;
+            width: 500px;
+            background-image: linear-gradient(#141e30, #243b55);
+            overflow: hidden;
+        }
+        body {
+            font-family: Arial;
+            display: block;
+            margin: 0 auto;
+        }
+
+        form {
+            text-align: center;
+            display: inline-table;
+        }
+
+        input[type=text], input[type=password] {
+            width: 100%;
+            padding: 12px 20px;
+            margin: 8px 0;
+            display: inline-block;
+            border: 1px solid #467594;
+            box-sizing: border-box;
+        }
+
+        button {
+            /*background: linear-gradient(#467594,#435276);*/
+            background-color: #435276;
+            color: white;
+            padding: 14px 20px;
+            margin: 8px 0;
+            border: none;
+            cursor: pointer;
+            width: 100%
+        }
+
+            button:hover {
+                opacity: 0.8;
+            }
+
+        h1 {
+            text-align: center;
+        }
+
+        .wrapper {
+            border: 5px ridge #0E1721;
+            display: table;
+            height: 30%;
+            margin-left: 50px;
+            padding: 50px;
+            text-align: center;
+            background: white;
+        }
+
+        .grandParentContainer {
+            display: table;
+            height: 100%;
+            margin: 30% auto;
+            text-align: center;
+        }
+
+        .parentContainer {
+            display: inline-block;
+            vertical-align: middle;
+            padding: inherit;
+        }
+
+        .cancelButton {
+            width: auto;
+            float: left;
+            padding: 10px 18px;
+            background-color: indianred;
+        }
+
+        .imgAvatar {
+            width: 40%;
+            border-radius: 50%;
+        }
+
+        .container {
+            padding: 0px 16px 0 16px;
+            transform: translate(0%, 3%);
+        }
+
+        span.psw {
+            float: right;
+            padding-top: 16px;
+        }
+
+        /*attempts for social media login*/
+        .fb {
+            background-color: #3B5998;
+            color: white;
+        }
+        .twitter {
+            background-color: #55ACEE;
+            color: white;
+        }
+
+        .google {
+            background-color: #dd4b39;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+    <h1>Login</h1>
+    <div class=" " grandParentContainer">
+        <div class="parentContainer">
+            <form action="/action_page.php" method="post">
+                <div class="container">
+                    <label for="username"><b>Username</b></label>
+                    <input type="text" placeholder="Enter Username" name="username" required />
+
+                    <label for="password"><b>Password</b></label>
+                    <input type="password" placeholder="Enter Password" name="password" required />
+
+                    <button type="submit">Login</button>
+
+                    <label>
+                        <input type="checkbox" checked="checked" name="remember" />Remember me
+                    </label>
+                </div>
+
+                <div class="container" style="background-color:white">
+                    <button type="button" class="cancelButton">Cancel</button>
+                    <span class="psw">Forgot <a href="#">password</a></span>
+                </div>
+            </form>
+        </div>
+    </div>
+    </div>
+    
+</body>
+</html>
