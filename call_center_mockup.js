@@ -99,6 +99,7 @@ class LayoutUserGrid {
     this.tooltip = document.querySelectorAll('.tooltip');
     this.toolTipIndex = 0;
 
+    // Agent States Legend Color
     var availDot = document.getElementById('avail');
     window.addEventListener("load", () => {
     availDot.style.backgroundColor = this.layoutTheme.colorLookup(51)
@@ -123,6 +124,7 @@ class LayoutUserGrid {
     window.addEventListener("load", () => {
     off.style.backgroundColor = this.layoutTheme.colorLookup(255)
     });
+    // End Agent States Legend Color
 
     // Creates a mousemove listener for the tooltip.
     addEventListener('mousemove', (event) => {
