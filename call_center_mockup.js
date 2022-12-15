@@ -1,6 +1,6 @@
 "use strict";
 
-const gridCanvas = document.getElementById("cgl");
+const gridCanvas = document.getElementById("dots");
 const gl = gridCanvas.getContext("webgl", { cull: false, antialias: false });
 const shaderStageTexture = twgl.createProgramInfo(gl, ["vertex_texture", "fragment_texture"]);
 const shaderStageScreen = twgl.createProgramInfo(gl, ["vertex_screen", "fragment_screen"]);
