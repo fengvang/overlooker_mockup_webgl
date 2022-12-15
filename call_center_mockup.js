@@ -99,6 +99,31 @@ class LayoutUserGrid {
     this.tooltip = document.querySelectorAll('.tooltip');
     this.toolTipIndex = 0;
 
+    var availDot = document.getElementById('avail');
+    window.addEventListener("load", () => {
+    availDot.style.backgroundColor = this.layoutTheme.colorLookup(51)
+    });
+
+    var prev = document.getElementById('preview');
+    window.addEventListener("load", () => {
+    prev.style.backgroundColor = this.layoutTheme.colorLookup(102)
+    });
+
+    var call = document.getElementById('oncall');
+    window.addEventListener("load", () => {
+    call.style.backgroundColor = this.layoutTheme.colorLookup(153)
+    });
+
+    var afcall = document.getElementById('aftercall');
+    window.addEventListener("load", () => {
+    afcall.style.backgroundColor = this.layoutTheme.colorLookup(204)
+    });
+
+    var off = document.getElementById('offline');
+    window.addEventListener("load", () => {
+    off.style.backgroundColor = this.layoutTheme.colorLookup(255)
+    });
+
     // Creates a mousemove listener for the tooltip.
     addEventListener('mousemove', (event) => {
       this.mouseMove(event);
@@ -926,7 +951,7 @@ class ColorTheme {
     }
 
     tempColor = "rgb(" + 255 * tempColorArray[0] + ","
-      + 255 * tempColorArray[1] + "," + 255 * tempColorArray[2] + ");";
+      + 255 * tempColorArray[1] + "," + 255 * tempColorArray[2] + ")";
 
     return tempColor;
   }

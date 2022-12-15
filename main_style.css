@@ -175,3 +175,24 @@ h1 {
 .tooltipbody {
     margin: 0px;
 }
+
+#color-legend {
+    display: flex;
+    flex-direction: column  ;
+    color: #fff;
+    position: inherit;
+    margin-top: 40px;
+}
+
+#color-legend > div {
+    height: 50px;
+    color: #fff;
+    margin-top: 15px;
+}
+
+.dot {
+    height: 10px;
+    width: 10px;
+    border-radius: 50%;
+    display: inline-block;
+  }
