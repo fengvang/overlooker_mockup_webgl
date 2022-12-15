@@ -48,20 +48,20 @@
   // Matches the data texture's state codes with the colors from the theme.
   vec3 matchColorCode(in float _code) {
     vec3 _color = vec3(0.0);
-    if (_code == 0.0) {         
+    if (_code <= 0.0) {         
       if (u_colortheme[0].r + u_colortheme[0].g + u_colortheme[0].b < 1.5) {
         _color = u_colortheme[0] + vec3(0.15);
       } else {
         _color = u_colortheme[0] - vec3(0.15);
       }                         
       _color = clamp(_color, 0.0, 1.0); // uninit
-    } else if (_code == 0.2) {
+    } else if (_code <= 0.2) {
       _color = u_colortheme[1];         // Available
-    } else if (_code == 0.4) {
+    } else if (_code <= 0.4) {
       _color = u_colortheme[2];         // previewing
-    } else if (_code == 0.6) {
+    } else if (_code <= 0.6) {
       _color = u_colortheme[3];         // OnCall
-    } else if (_code == 0.8) {
+    } else if (_code <= 0.8) {
       _color = u_colortheme[4];         // AfterCall
     } else {
       _color = u_colortheme[5];         // LoggedOut
@@ -71,14 +71,13 @@
 
   // References an animation's start time and duration to a looping timer to get
   // its normalized progress.
-  float mapTime (float start, float duration, float timer) {
+  float mapTime (in float start, in float duration, in float timer) {
     float end = 0.0;
     float progress = 0.0;
-    // Stop animation code.
     if (start == 255.0) {
       progress = 1.0;
-    } else if (timer < duration && start > timer) {
-      // If the animation spanned both ends of the animation number line and the
+    } else if (timer < start && start + duration >= 255.0) {
+      // If the animation spans both ends of the animation number line and the
       // timer has restarted, project the start time backwards by the same
       // amount that the timer was moved by mod.
       start = start - 255.0;
@@ -93,24 +92,25 @@
 
   void main() {
     vec4 tex_data = texture2D(u_texture_data, v_texcoord);
-    float colormix_start = 255.0 * tex_data.w;
-
-    // Scale and loop raw time within shader for a more accurate timer.
-    float timer = u_timerloop;
-    float mix_amount = mapTime(colormix_start, u_mix_duration, timer);
+    float colormix_start = 255.0 * tex_data.z;
 
     vec3 start_color = matchColorCode(tex_data.x);
     vec3 end_color = matchColorCode(tex_data.y);
-    vec4 mixed = vec4(mix(start_color, end_color, mix_amount), 1.0);
-    
-    gl_FragColor = mixed;
+    float mix_amount = mapTime(colormix_start, u_mix_duration, u_timerloop);
+    vec3 mixed = mix(start_color, end_color, mix_amount);
+
+    // Pass thru the pulse animation start time, since it's a per pixel effect
+    // and texture_fragment is per texel.
+    gl_FragColor = vec4(mixed, tex_data.w);
   }
 
   </script>
   <script id="fragment_screen" type="notjs">
   precision highp float;
   
+  uniform float u_timerloop;
   uniform float u_aafactor;
+  uniform float u_pulse_duration;
   uniform vec2 u_resolution;
   uniform vec2 u_mouse;
   uniform vec3 u_gridparams;
@@ -118,27 +118,54 @@
   uniform sampler2D u_texture_color;
   varying vec2 v_texcoord;
 
+  // References an animation's start time and duration to a looping timer to get
+  // its normalized progress.
+  float mapTime (in float start, in float duration, in float timer) {
+    float end = 0.0;
+    float progress = 0.0;
+    if (start == 255.0) {
+      progress = 1.0;
+    } else if (timer < start && start + duration >= 255.0) {
+      // If the animation spans both ends of the animation number line and the
+      // timer has restarted, project the start time backwards by the same
+      // amount that the timer was moved by mod.
+      start = start - 255.0;
+      end = start + duration;
+      progress = clamp((timer - start) / (end - start), 0.0, 1.0);
+    } else {
+      end = start + duration;
+      progress = clamp((timer - start) / (end - start), 0.0, 1.0);
+    }
+    return progress;
+  }
+
   // Uses the dot product of the input coord and the circle's center to test if
-  // a pixel lies on the circle. Dot product is used instead of distance formula
-  // because 1 trig function is faster than 1 sqrt + 2 exp.
-  float circle_dot(in vec2 _uv) {
-    float radius = u_gridparams.z / 2.0;
+  // a pixel lies on the circle.
+  float circle_dot(in vec2 _uv, in float radius, in float feathering) {
     vec2 centered = _uv.xy * vec2(2.0) - vec2(1.0);
     float d = 0.5 * dot(centered, centered) + radius;
-    return smoothstep(0.5 + u_aafactor, 0.5 - u_aafactor, d);
+    return smoothstep(0.5 + feathering, 0.5 - feathering, d);
   }
 
   void main() {
     // The quad spans the screen, so uv coords are used instead of frag coords
     // to keep each circle aligned with its color.
     vec2 uv = v_texcoord.xy;
+    vec4 tex_color = texture2D(u_texture_color, v_texcoord);
 
     // Draws a grid by looping the screenspace horizontally by the number of
     // grid columns and vertically by the number of grid rows.
     uv.xy = fract(uv.xy * u_gridparams.xy);
 
-    vec4 tex_color = texture2D(u_texture_color, v_texcoord);
-    gl_FragColor = vec4(mix(u_colortheme[0].rgb, tex_color.rgb, circle_dot(uv)), 1.0);
+    float pulse_progress = mapTime(tex_color.w * 255.0, u_pulse_duration, u_timerloop);
+    float pulse_normal = sin(pulse_progress * 3.14159265359);
+    vec3 edge_color = clamp(tex_color.rgb + 0.5 * pulse_normal, 0.0, 1.5);
+    vec3 circle_color = vec3(mix(edge_color, tex_color.rgb, circle_dot(uv, 0.25, 1.0)));
+
+    float main_circle = circle_dot(uv, u_gridparams.z * 0.5, u_aafactor);
+
+    vec3 bg_color = u_colortheme[0].rgb;
+    gl_FragColor = vec4(mix(bg_color, circle_color, main_circle), 1.0);
   }
       </script>
 </head>
