@@ -1,0 +1,192 @@
+/* For font */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@500&display=swap');
+
+body {
+    padding-top: 150px;
+    padding-bottom: 40px;
+    font-family: 'Noto Sans', sans-serif;
+    font-size: .75rem;
+}
+
+/*properties header*/
+.container {
+    width: 80%;
+    margin: 0 auto;
+}
+
+/*for the  footer*/
+.container-ft {
+    width: 80%;
+    margin: 0px 10px;
+}
+
+.fixed-header,
+.fixed-footer {
+    width: 100%;
+    position: fixed;
+    background: #0E1721;
+    /* background: linear-gradient(#2b5876,#4e4376);*/
+    /* background: #333;*/
+    color: #fff;
+    padding: 10px 0;
+}
+
+.fixed-header {
+    top: 0;
+    left: 0;
+}
+
+.fixed-footer {
+    bottom: 0;
+    left: 0;
+}
+
+nav a {
+    color: #fff;
+    text-decoration: none;
+    padding: 6px 260px;
+    padding-left: 180px;
+    display: inline-block;
+    font-size: 1rem;
+    width: 50px;
+}
+
+/* a:link {
+    color: #fff;
+}
+
+a:visited {
+    color: #fff;
+}
+
+a:hover {
+    color: #1D3045;
+}
+
+a:active {
+    color: #fff;
+} */
+
+/* New nav */
+ul {
+    list-style-type: none;
+    background-color: #0E1721;
+    overflow: hidden;
+}
+
+li {
+    float: left;
+}
+
+li a {
+    display: block;
+    color: #fff;
+    text-align: center;
+    padding: 10px 10px 10px 10px;
+    text-decoration: none;
+}
+
+li a:hover {
+    background-color: #3C628D;
+}
+/* End new nav */
+
+.container p {
+    line-height: 200px;
+}
+
+/*this is where the contents of the page will go*/
+#parent {
+    display: flex;
+    flex-wrap: wrap;
+    height: 750px;
+    gap: 10px;
+    align-items: stretch;
+    margin-top: -50px;
+
+}
+
+#legend {
+    width: 150px;
+    background: linear-gradient(118deg, #141e30, #243b55);
+    border: 1px #0E1721 solid;
+    padding-right: 8px;
+    padding-left: 22px;
+    padding-top: 15px;
+    margin: -33px -8px -39px -10px;
+}
+
+/*This is for the search bar*/
+.search {
+    width: 100%;
+    left: -5px;
+    bottom: -14px;
+    position: relative;
+    display: flex;
+
+}
+
+.searchName {
+    width: 100%;
+    border: 2px solid #000000;
+    border-right: none;
+    padding: 5px;
+    height: 20px;
+    border-radius: 5px 0 0 5px;
+    outline: none;
+}
+
+.searchButton {
+    width: 40px;
+    border: 2px solid #000000;
+    background: #424051;
+    text-align: center;
+    border-radius: 0 5px 5px 0;
+    cursor: pointer;
+    font-size: 20px;
+}
+
+.wrap {
+    position: inherit;
+    top: 50%;
+    left: 50%;
+}
+
+/*the dots will go here*/
+#dots {
+    flex: 1;
+    background-repeat: no-repeat;
+    background-size: cover;
+    border: 1px black solid;
+    text-align: center;
+    overflow-y: hidden;
+    margin-top: -33px;
+    margin-left: -9px;
+    border-right-width: 0px;
+    margin-bottom: -39px;
+}
+
+h1 {
+    font-size: 25px;
+    color: #dfdfdf;
+}
+
+.tooltipbody:hover .tooltip {
+    display: block;
+}
+
+.tooltip {
+    display: none;
+    background: #C8C8C8;
+    margin-left: 28px;
+    padding: 10px;
+    position: absolute;
+    z-index: 1000;
+    width: max-content;
+    max-width: 200px;
+    height: max-content;
+}
+
+.tooltipbody {
+    margin: 0px;
+}
